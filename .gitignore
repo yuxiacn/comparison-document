@@ -1,0 +1,27 @@
+# 忽略五子棋相关文件
+gomoku*.py
+五子棋.app/
+启动五子棋.command
+打包Windows版本.bat
+测试安卓版.py
+
+# 忽略构建文件
+build/
+dist/
+*.spec
+
+# 忽略说明文档（不需要上传的）
+Android打包说明.md
+Windows打包说明.md
+对话备忘录.md
+快速参考.txt
+push_to_github.sh
+
+# 忽略配置文件
+.github/
+
+# 忽略其他
+build_windows.py
+requirements-android.txt
+setup.py
+setup_alias.py
