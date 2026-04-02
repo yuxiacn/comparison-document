@@ -281,8 +281,8 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 stripped = line.lstrip()
                 indent = len(line) - len(stripped)
                 
-                # New paragraph only if indent >= 3 spaces
-                if indent >= 3:
+                # New paragraph only if indent >= 4 spaces
+                if indent >= 4:
                     is_new_para = True
                 
                 # Note: We do NOT split on hard returns, periods, or digit starts
@@ -339,8 +339,8 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                         stripped = line.lstrip()
                         indent = len(line) - len(stripped)
                         
-                        # New paragraph only if indent >= 3 spaces
-                        if indent >= 3:
+                        # New paragraph only if indent >= 4 spaces
+                        if indent >= 4:
                             is_new_para = True
                         
                         # Note: We do NOT split on hard returns, periods, or digit starts
