@@ -938,7 +938,7 @@ def main():
     
     # Program header
     print("=" * 70)
-    print(f"compare_docs.py - Document Difference Comparison Tool {VERSION}")
+    print(f"comparedoen.py - Document Difference Comparison Tool for English {VERSION}")
     print("Supports PDF/DOCX/PPTX/TXT comparison, generates Word diff report")
     print("Author: Yu Xia  E-mail: yuxiacn@qq.com")
     print("=" * 70)
