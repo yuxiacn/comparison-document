@@ -28,3 +28,7 @@ setup_alias.py
 comparedocscn.py
 translate_to_english.py
 bump_version.py
+word_line_numbers.py
+word_line_numbers_libreoffice.py
+calibrate_line_numbers.py
+word_line_numbers_mac.py
