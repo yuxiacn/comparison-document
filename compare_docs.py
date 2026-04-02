@@ -305,12 +305,32 @@ def word_diff_runs(text1, text2):
     return left_runs, right_runs
 
 
-def build_diff_report(lines1, lines2, visual_map1=None, visual_map2=None):
+def get_word_line_number_offset(doc_path):
+    """
+    尝试读取 Word 文档的行号设置，返回行号起始偏移量。
+    如果文档启用了行号，返回行号起始值；否则返回 None。
+    """
+    try:
+        doc = Document(doc_path)
+        for section in doc.sections:
+            # 尝试获取行号设置
+            sectPr = section._sectPr
+            if hasattr(sectPr, 'lnNumType') and sectPr.lnNumType is not None:
+                # 文档启用了行号
+                lnNumType = sectPr.lnNumType
+                start = getattr(lnNumType, 'start', 1)
+                return int(start) if start else 1
+    except Exception:
+        pass
+    return None
+
+
+def build_diff_report(lines1, lines2, visual_map1=None, visual_map2=None, line_offset=0):
     """
     使用 difflib.SequenceMatcher 分析差异，返回仅包含差异行的数据。
     每个元素为 (tag, left_line_no, left_text, right_line_no, right_text)
     tag 取值: replace, delete, insert
-    行号使用 Word 视觉行号（考虑自动换行）。
+    行号使用 Word 视觉行号（考虑自动换行和偏移量校准）。
     """
     sm = difflib.SequenceMatcher(None, lines1, lines2, autojunk=False)
     opcodes = sm.get_opcodes()
@@ -320,6 +340,11 @@ def build_diff_report(lines1, lines2, visual_map1=None, visual_map2=None):
         visual_map1 = list(range(1, len(lines1) + 1))
     if visual_map2 is None:
         visual_map2 = list(range(1, len(lines2) + 1))
+    
+    # 应用偏移量校准
+    if line_offset != 0:
+        visual_map1 = [max(1, x + line_offset) for x in visual_map1]
+        visual_map2 = [max(1, x + line_offset) for x in visual_map2]
 
     rows = []
     for tag, i1, i2, j1, j2 in opcodes:
@@ -601,13 +626,40 @@ def generate_docx(rows, name1, name2, output_path):
 
 
 def main():
-    if len(sys.argv) != 3:
-        print("用法: python compare_docs.py <文件1> <文件2>")
+    if len(sys.argv) < 3:
+        print("用法: python compare_docs.py <文件1> <文件2> [行号偏移量]")
         print("支持格式: .docx, .pdf, .pptx, .txt")
+        print("示例: python compare_docs.py doc1.docx doc2.docx -5")
+        print("      （偏移量-5表示对比报告行号比Word视觉行号多5，需要减去）")
         sys.exit(1)
 
     file1 = sys.argv[1]
     file2 = sys.argv[2]
+    
+    # 获取行号偏移量（可选参数）
+    line_offset = 0
+    if len(sys.argv) >= 4:
+        try:
+            line_offset = int(sys.argv[3])
+            print(f"使用行号偏移量: {line_offset}")
+        except ValueError:
+            print(f"警告: 无效的偏移量 '{sys.argv[3]}'，使用默认值 0")
+    else:
+        # 尝试从环境变量获取偏移量
+        env_offset = os.environ.get('COMPARE_LINE_OFFSET')
+        if env_offset:
+            try:
+                line_offset = int(env_offset)
+                print(f"从环境变量获取行号偏移量: {line_offset}")
+            except ValueError:
+                pass
+    
+    # 如果是docx文件，尝试读取Word的行号设置
+    if line_offset == 0 and file1.endswith('.docx'):
+        word_start = get_word_line_number_offset(file1)
+        if word_start is not None and word_start != 1:
+            # Word文档启用了行号，且起始值不为1
+            print(f"检测到Word文档行号起始值: {word_start}")
 
     if not os.path.exists(file1):
         print(f"错误: 文件不存在: {file1}")
@@ -640,7 +692,7 @@ def main():
     print(f"  共 {len(lines2)} 段落")
 
     print("正在分析差异 ...")
-    rows = build_diff_report(lines1, lines2, visual_map1, visual_map2)
+    rows = build_diff_report(lines1, lines2, visual_map1, visual_map2, line_offset)
 
     print("正在生成报告 ...")
     generate_docx(rows, name1, name2, output_path)
