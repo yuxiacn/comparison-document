@@ -291,16 +291,12 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 # Strong indicator: significant indent (4+ spaces)
                 if indent >= 4:
                     is_new_para = True
-                # Medium indicator: line starts with digit (numbered paragraph)
-                elif stripped and stripped[0].isdigit():
-                    is_new_para = True
                 # Weak indicator: previous paragraph ends with period AND current starts with uppercase
                 # Only if previous was long enough to be a complete paragraph
-                else:
+                elif stripped and stripped[0].isupper():
                     prev_content = current_paragraph[-1] if current_paragraph else ""
                     if (prev_content and len(prev_content) > 60 and
-                        prev_content[-1] in '.!?' and 
-                        stripped and stripped[0].isupper()):
+                        prev_content[-1] in '.!?'):
                         is_new_para = True
             
             if is_new_para and current_paragraph:
@@ -359,15 +355,11 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                         # Strong indicator: significant indent (4+ spaces)
                         if indent >= 4:
                             is_new_para = True
-                        # Medium indicator: line starts with digit (numbered paragraph)
-                        elif stripped and stripped[0].isdigit():
-                            is_new_para = True
                         # Weak indicator: previous paragraph ends with period AND current starts with uppercase
-                        else:
+                        elif stripped and stripped[0].isupper():
                             prev_content = current_paragraph[-1] if current_paragraph else ""
                             if (prev_content and len(prev_content) > 60 and
-                                prev_content[-1] in '.!?' and 
-                                stripped and stripped[0].isupper()):
+                                prev_content[-1] in '.!?'):
                                 is_new_para = True
                     
                     if is_new_para and current_paragraph:
