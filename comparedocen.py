@@ -800,7 +800,7 @@ def generate_docx(rows, name1, name2, output_path):
     table.autofit = False
     table.allow_autofit = False
 
-    col_widths = [0.90, 3.35, 0.70, 0.90, 3.35]
+    col_widths = [0.75, 3.50, 0.60, 0.75, 3.50]
     set_table_column_widths(table, col_widths)
 
     # 设置表头 - 改为显示page number-paragraphs号
