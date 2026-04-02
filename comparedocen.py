@@ -276,41 +276,13 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 # First paragraph starts
                 is_new_para = True
             else:
-                # Check if current line belongs to new paragraph
+                # New paragraph starts ONLY when current line has indent
                 stripped = line.lstrip()
                 indent = len(line) - len(stripped)
-                prev_line = current_paragraph[-1]
-                prev_stripped = prev_line.lstrip() if prev_line else ""
                 
-                # Condition 1: obvious indent (4+ spaces) - strong indicator
-                if indent >= 4:
+                # Has indent (> 0) = new paragraph start
+                if indent > 0:
                     is_new_para = True
-                
-                # Condition 2: previous line ends with sentence terminator
-                # AND current line starts with uppercase/digit AND has sufficient length
-                elif prev_line and prev_line[-1] in '.!?':
-                    if stripped and len(stripped) > 5:
-                        first_char = stripped[0]
-                        # For English: check uppercase; for Chinese: any non-space char
-                        if first_char.isupper() or first_char.isdigit() or ord(first_char) > 127:
-                            # Additional check: previous line should be reasonably long
-                            # to avoid splitting on abbreviations like "Mr." "e.g." etc.
-                            if len(prev_stripped) > 20:
-                                is_new_para = True
-                
-                # Condition 3: line number reset (obviously smaller, indicating new page section)
-                if not is_new_para and visual_line_num and current_line_num:
-                    if visual_line_num < current_line_num and visual_line_num < 10:
-                        # Double check: big line number jump indicates new section/page
-                        if current_line_num > visual_line_num + 20:
-                            is_new_para = True
-                
-                # Condition 4: Empty line separator (would have been filtered, but check for patterns)
-                # If previous paragraph is already long enough, be less eager to split
-                current_para_len = sum(len(l) for l in current_paragraph)
-                if is_new_para and current_para_len < 30:
-                    # Very short paragraph, probably mis-split, merge it
-                    is_new_para = False
             
             if is_new_para and current_paragraph:
                 # Save current paragraph
@@ -357,31 +329,14 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                             current_line_num = None
                         continue
                     
-                    # Check new paragraph
+                    # Check new paragraph - indent only
                     is_new_para = False
                     if current_paragraph:
                         stripped = line.lstrip()
                         indent = len(line) - len(stripped)
-                        prev_line = current_paragraph[-1]
-                        prev_stripped = prev_line.lstrip() if prev_line else ""
-                        
-                        # Condition 1: obvious indent (4+ spaces)
-                        if indent >= 4:
+                        # Has indent (> 0) = new paragraph start
+                        if indent > 0:
                             is_new_para = True
-                        # Condition 2: previous line ends with terminator AND current starts with uppercase
-                        elif prev_line and prev_line[-1] in '.!?':
-                            if stripped and len(stripped) > 5:
-                                first_char = stripped[0]
-                                if first_char.isupper() or first_char.isdigit() or ord(first_char) > 127:
-                                    # Check previous line length to avoid abbreviations
-                                    if len(prev_stripped) > 20:
-                                        is_new_para = True
-                        
-                        # Less eager to split short paragraphs
-                        if is_new_para:
-                            current_para_len = sum(len(l) for l in current_paragraph)
-                            if current_para_len < 30:
-                                is_new_para = False
                     
                     if is_new_para and current_paragraph:
                         paragraph_counter += 1
