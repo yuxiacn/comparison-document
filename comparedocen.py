@@ -27,7 +27,7 @@ from docx.oxml import OxmlElement
 #   - Feature changes: increment minor version (e.g., V2.0 → V2.1)
 #   - Bug fixes: increment revision (e.g., V2.0 Build20260403.1 → V2.0 Build20260403.2)
 #   - Update date and revision with each modification
-VERSION = "V2.0 Build20260403.1"
+VERSION = "V2.0 Build20260403.3"
 
 # Reader registry
 READERS = {}
