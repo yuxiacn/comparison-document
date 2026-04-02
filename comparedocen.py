@@ -243,11 +243,13 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 if match:
                     try:
                         visual_line_num = int(match.group(1).strip())
-                        line = line[match.end():].lstrip()
+                        # Remove line number but KEEP leading spaces for indent detection
+                        line = line[match.end():]
                     except ValueError:
                         pass
                 
-                if line:
+                # Check if there's actual content (ignoring leading/trailing spaces)
+                if line.strip():
                     processed_lines.append((line, visual_line_num))
             
             all_pages_lines.append((page_num, processed_lines))
@@ -291,16 +293,16 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 paragraphs.append(para_text)
                 location_info.append((paragraph_counter, current_page or page_num, current_line_num))
                 
-                # Start new paragraph
-                current_paragraph = [line]
+                # Start new paragraph (store without leading spaces)
+                current_paragraph = [line.lstrip()]
                 current_line_num = visual_line_num
                 current_page = page_num
             else:
-                # Continue current paragraph
+                # Continue current paragraph (store without leading spaces)
                 if not current_paragraph:
                     current_line_num = visual_line_num
                     current_page = page_num
-                current_paragraph.append(line)
+                current_paragraph.append(line.lstrip())
             
             i += 1
         
