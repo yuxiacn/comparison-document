@@ -60,21 +60,117 @@ def read_txt(path):
     return [ln.rstrip() for ln in lines]
 
 
-@register_reader('.docx')
-def read_docx(path):
-    """读取docx，返回内容列表和视觉行号映射"""
-    doc = Document(path)
-    lines = []
-    visual_line_map = []  # 记录每个段落对应的起始视觉行号
-    current_visual_line = 1
+def get_precise_visual_line_numbers(path):
+    """
+    尝试使用外部工具获取精确的视觉行号
+    优先级: LibreOffice > 高精度估算
+    返回: [(paragraph_index, visual_line_number), ...] 或 None
+    """
+    # 尝试导入 LibreOffice 方案
+    try:
+        from word_line_numbers_libreoffice import get_line_numbers_with_libreoffice
+        result = get_line_numbers_with_libreoffice(path)
+        if result:
+            # 将结果转换为段落索引到视觉行号的映射
+            visual_map = {}
+            for item in result:
+                # 这里需要关联段落，LibreOffice 输出的是行，不是段落
+                # 简化处理：使用行号作为近似
+                pass
+            return None  # 暂时不使用，因为需要更复杂的段落关联
+    except Exception:
+        pass
+    
+    return None
+
+
+def calculate_precise_visual_lines(doc):
+    """
+    高精度计算视觉行号
+    考虑页面设置、字体、缩进等因素
+    """
+    # 获取页面设置
+    section = doc.sections[0] if doc.sections else None
+    
+    if section:
+        # 页面宽度（英寸）
+        page_width = section.page_width.inches if section.page_width else 8.5
+        # 页边距
+        left_margin = section.left_margin.inches if section.left_margin else 1.0
+        right_margin = section.right_margin.inches if section.right_margin else 1.0
+        # 可用宽度
+        available_width = page_width - left_margin - right_margin
+    else:
+        available_width = 6.5  # 默认 A4 宽度减去标准边距
+    
+    visual_line_map = []
+    current_line = 1
     
     for para in doc.paragraphs:
         text = para.text.rstrip()
-        lines.append(text)
-        visual_line_map.append(current_visual_line)
-        # 更新视觉行号（考虑自动换行）
-        visual_lines = estimate_visual_lines(text, chars_per_line=80)
-        current_visual_line += visual_lines
+        
+        if not text:
+            visual_line_map.append(current_line)
+            current_line += 1
+            continue
+        
+        # 获取字体大小
+        font_size = 12  # 默认
+        try:
+            if para.runs and para.runs[0].font.size:
+                font_size = para.runs[0].font.size.pt
+        except:
+            pass
+        
+        # 计算字符宽度（英寸）
+        # 12pt 字体约 1/72 英寸每磅，每个字符约 0.5-0.6 倍字号宽度
+        char_width_inches = (font_size / 72) * 0.55
+        
+        # 计算每行可容纳的字符数
+        chars_per_line = int(available_width / char_width_inches)
+        chars_per_line = max(40, min(chars_per_line, 120))  # 合理范围
+        
+        # 计算缩进占用的字符数
+        indent_chars = 0
+        try:
+            if para.paragraph_format.left_indent:
+                indent_chars = int(para.paragraph_format.left_indent.inches / char_width_inches)
+        except:
+            pass
+        
+        effective_chars_per_line = max(20, chars_per_line - indent_chars)
+        
+        # 计算等效字符长度（中文算2个）
+        effective_length = sum(2 if '\u4e00' <= c <= '\u9fff' else 1 for c in text)
+        
+        # 计算需要的行数
+        lines_needed = max(1, (effective_length + effective_chars_per_line - 1) // effective_chars_per_line)
+        
+        visual_line_map.append(current_line)
+        current_line += lines_needed
+    
+    return visual_line_map
+
+
+@register_reader('.docx')
+def read_docx(path, use_precise=True):
+    """
+    读取docx，返回内容列表和视觉行号映射
+    use_precise: 是否使用高精度计算（考虑页面设置、字体等）
+    """
+    doc = Document(path)
+    lines = [para.text.rstrip() for para in doc.paragraphs]
+    
+    if use_precise:
+        # 使用高精度计算
+        visual_line_map = calculate_precise_visual_lines(doc)
+    else:
+        # 使用简单估算
+        visual_line_map = []
+        current_line = 1
+        for text in lines:
+            visual_line_map.append(current_line)
+            current_line += estimate_visual_lines(text, chars_per_line=80)
     
     return lines, visual_line_map
 
@@ -125,11 +221,21 @@ def read_pptx(path):
     return lines, visual_line_map
 
 
-def read_document(path):
+def read_document(path, use_precise=True):
+    """
+    读取文档内容
+    use_precise: 对docx文件是否使用高精度视觉行号计算
+    """
     ext = Path(path).suffix.lower()
     if ext not in READERS:
         raise ValueError(f"不支持的文件格式: {ext}。当前支持: {', '.join(READERS.keys())}")
-    return READERS[ext](path)
+    
+    reader = READERS[ext]
+    # 对docx特殊处理，传递use_precise参数
+    if ext == '.docx':
+        return reader(path, use_precise=use_precise)
+    else:
+        return reader(path)
 
 
 def set_run_font(run, font_name='Times New Roman', east_asia='宋体', size=Pt(10), bold=False):
@@ -626,41 +732,22 @@ def generate_docx(rows, name1, name2, output_path):
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("用法: python compare_docs.py <文件1> <文件2> [行号偏移量]")
-        print("支持格式: .docx, .pdf, .pptx, .txt")
-        print("示例: python compare_docs.py doc1.docx doc2.docx -5")
-        print("      （偏移量-5表示对比报告行号比Word视觉行号多5，需要减去）")
-        sys.exit(1)
-
-    file1 = sys.argv[1]
-    file2 = sys.argv[2]
+    import argparse
     
-    # 获取行号偏移量（可选参数）
-    line_offset = 0
-    if len(sys.argv) >= 4:
-        try:
-            line_offset = int(sys.argv[3])
-            print(f"使用行号偏移量: {line_offset}")
-        except ValueError:
-            print(f"警告: 无效的偏移量 '{sys.argv[3]}'，使用默认值 0")
-    else:
-        # 尝试从环境变量获取偏移量
-        env_offset = os.environ.get('COMPARE_LINE_OFFSET')
-        if env_offset:
-            try:
-                line_offset = int(env_offset)
-                print(f"从环境变量获取行号偏移量: {line_offset}")
-            except ValueError:
-                pass
+    parser = argparse.ArgumentParser(description='文档对比工具')
+    parser.add_argument('file1', help='第一个文档路径')
+    parser.add_argument('file2', help='第二个文档路径')
+    parser.add_argument('--offset', type=int, default=0, help='行号偏移量（对比报告行号 = 估算行号 + 偏移量）')
+    parser.add_argument('--simple', action='store_true', help='使用简单行号计算（段落号），不估算视觉行号')
+    parser.add_argument('--calibrate', action='store_true', help='校准模式：输出行号对比信息用于调试')
     
-    # 如果是docx文件，尝试读取Word的行号设置
-    if line_offset == 0 and file1.endswith('.docx'):
-        word_start = get_word_line_number_offset(file1)
-        if word_start is not None and word_start != 1:
-            # Word文档启用了行号，且起始值不为1
-            print(f"检测到Word文档行号起始值: {word_start}")
-
+    args = parser.parse_args()
+    
+    file1 = args.file1
+    file2 = args.file2
+    line_offset = args.offset
+    use_precise = not args.simple
+    
     if not os.path.exists(file1):
         print(f"错误: 文件不存在: {file1}")
         sys.exit(1)
@@ -674,16 +761,23 @@ def main():
     output_path = os.path.join(os.getcwd(), output_name)
 
     print(f"正在读取 {file1} ...")
-    result1 = read_document(file1)
+    result1 = read_document(file1, use_precise=use_precise)
     if isinstance(result1, tuple):
         lines1, visual_map1 = result1
     else:
         lines1 = result1
         visual_map1 = None
     print(f"  共 {len(lines1)} 段落")
+    
+    # 校准模式：显示前几个段落的行号
+    if args.calibrate and visual_map1:
+        print("\n校准信息（前5个段落）:")
+        for i in range(min(5, len(lines1))):
+            print(f"  段落 {i+1}: 估算视觉行号 = {visual_map1[i]}")
+        print("  请与Word实际行号对比，使用 --offset 调整\n")
 
     print(f"正在读取 {file2} ...")
-    result2 = read_document(file2)
+    result2 = read_document(file2, use_precise=use_precise)
     if isinstance(result2, tuple):
         lines2, visual_map2 = result2
     else:
@@ -699,6 +793,7 @@ def main():
 
     diff_count = len(rows)
     print(f"差异行数: {diff_count}")
+    print(f"对比报告已保存: {output_path}")
 
 
 if __name__ == '__main__':
