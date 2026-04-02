@@ -21,13 +21,13 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 # 版本号
-# 格式: V主版本.次版本.Build年月日.修订号
+# 格式: V主版本.次版本 Build年月日.修订号
 # 更新规则:
 #   - 重大功能更新: 主版本+1 (如 V2.0 → V3.0)
 #   - 功能修改/优化: 次版本+1 (如 V2.0 → V2.1)
-#   - 日常修改/bug修复: 修订号+1 (如 V2.0.Build20260403.1 → V2.0.Build20260403.2)
+#   - 日常修改/bug修复: 修订号+1 (如 V2.0 Build20260403.1 → V2.0 Build20260403.2)
 #   - 每次修改后，同时更新日期和修订号
-VERSION = "V2.0.Build20260403.1"
+VERSION = "V2.0 Build20260403.1"
 
 # 读取器注册表
 READERS = {}
@@ -941,6 +941,7 @@ def main():
     print("=" * 70)
     print(f"compare_docs.py - 文档差异对比工具 {VERSION}")
     print("支持PDF/DOCX/PPTX/TXT格式对比，生成Word格式的差异报告")
+    print("Author: Yu Xia  E-mail: yuxiacn@qq.com")
     print("=" * 70)
     print()
     

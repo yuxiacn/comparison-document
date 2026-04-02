@@ -33,7 +33,7 @@ def bump_version(minor=False):
     content = file_path.read_text(encoding='utf-8')
     
     # 查找当前版本号
-    version_pattern = r'VERSION = "V(\d+)\.(\d+)\.Build(\d{8})\.(\d+)"'
+    version_pattern = r'VERSION = "V(\d+)\.(\d+) Build(\d{8})\.(\d+)"'
     match = re.search(version_pattern, content)
     
     if not match:
@@ -64,7 +64,7 @@ def bump_version(minor=False):
         print(f"更新修订号: Build{old_date}.{build-1 if today==old_date else '?'} → Build{today}.{build}")
     
     # 构建新版本号
-    new_version = f'V{major}.{minor_ver}.Build{today}.{build}'
+    new_version = f'V{major}.{minor_ver} Build{today}.{build}'
     
     # 替换版本号
     new_content = re.sub(version_pattern, f'VERSION = "{new_version}"', content)
