@@ -213,8 +213,9 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
     # Pattern to identify page numbers: standalone numeric lines (1-4 digits)
     import re
     page_number_pattern = re.compile(r'^\s*\d{1,4}\s*$')
-    # Pattern to identify visual line numbers at line start: (spaces+digits+space or dot)
-    line_number_pattern = re.compile(r'^(\s*\d+)[\.\s]\s*')
+    # Pattern to identify visual line numbers: matches line num + one separator only
+    # Preserves trailing spaces for indent detection
+    line_number_pattern = re.compile(r'^(\s*\d+)[\.\s]')
     
     # Collect raw line info from all pages first
     all_pages_lines = []  # [(page_num, lines), ...]
