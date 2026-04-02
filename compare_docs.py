@@ -756,27 +756,24 @@ def generate_docx(rows, name1, name2, output_path):
     p = doc.add_paragraph()
     run = p.add_run('说明：')
     set_run_font(run, east_asia='宋体', bold=False)
-    run = p.add_run('1. ')
-    set_run_font(run, east_asia='宋体', bold=False)
-    run = p.add_run('= ')
-    set_run_font(run, east_asia='宋体', bold=False)
-    run.font.color.rgb = RGBColor(*color_left)
-    run = p.add_run('为完全相同内容（已隐藏）  ')
+    run = p.add_run(' = : 完全相同内容（已隐藏）  ')
     set_run_font(run, east_asia='宋体', bold=False)
     run = p.add_run('≠ ')
     set_run_font(run, east_asia='宋体', bold=False)
     run.font.color.rgb = RGBColor(*color_mark_replace)
-    run = p.add_run('为有修改内容  ')
+    run = p.add_run(': 有修改内容  ')
     set_run_font(run, east_asia='宋体', bold=False)
     run = p.add_run('- ')
     set_run_font(run, east_asia='宋体', bold=False)
     run.font.color.rgb = RGBColor(*color_left)
-    run = p.add_run('为有删除内容  ')
+    run = p.add_run(': 有删除内容  ')
     set_run_font(run, east_asia='宋体', bold=False)
     run = p.add_run('+ ')
     set_run_font(run, east_asia='宋体', bold=False)
     run.font.color.rgb = RGBColor(*color_right)
-    run = p.add_run('为有新增内容')
+    run = p.add_run(': 有新增内容  ')
+    set_run_font(run, east_asia='宋体', bold=False)
+    run = p.add_run('P: 页码  L: 行号')
     set_run_font(run, east_asia='宋体', bold=False)
 
     if not rows:
@@ -816,7 +813,7 @@ def generate_docx(rows, name1, name2, output_path):
     for tag, left_loc, ltext, right_loc, rtext in rows:
         row_cells = table.add_row().cells
 
-        # 位置1 - 格式: Page页码-L行号（或 Page页码-段落号）
+        # 位置1 - 格式: P页码-L行号（或 P页码-段落号）
         cell = row_cells[0]
         set_cell_width(cell, col_widths[0])
         p = cell.paragraphs[0]
@@ -826,12 +823,12 @@ def generate_docx(rows, name1, name2, output_path):
             if len(left_loc) >= 3:
                 para_num, page_num, line_num = left_loc[0], left_loc[1], left_loc[2]
                 if line_num:
-                    loc_text = f"Page{page_num}-L{line_num}"
+                    loc_text = f"P{page_num}-L{line_num}"
                 else:
-                    loc_text = f"Page{page_num}-{para_num}"
+                    loc_text = f"P{page_num}-{para_num}"
             else:
                 para_num, page_num = left_loc[0], left_loc[1]
-                loc_text = f"Page{page_num}-{para_num}"
+                loc_text = f"P{page_num}-{para_num}"
         else:
             loc_text = ""
         run = p.add_run(loc_text)
@@ -839,7 +836,7 @@ def generate_docx(rows, name1, name2, output_path):
         run.font.color.rgb = RGBColor(*color_gray)
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-        # 位置2 - 格式: Page页码-L行号（或 Page页码-段落号）
+        # 位置2 - 格式: P页码-L行号（或 P页码-段落号）
         cell = row_cells[3]
         set_cell_width(cell, col_widths[3])
         p = cell.paragraphs[0]
@@ -849,12 +846,12 @@ def generate_docx(rows, name1, name2, output_path):
             if len(right_loc) >= 3:
                 para_num, page_num, line_num = right_loc[0], right_loc[1], right_loc[2]
                 if line_num:
-                    loc_text = f"Page{page_num}-L{line_num}"
+                    loc_text = f"P{page_num}-L{line_num}"
                 else:
-                    loc_text = f"Page{page_num}-{para_num}"
+                    loc_text = f"P{page_num}-{para_num}"
             else:
                 para_num, page_num = right_loc[0], right_loc[1]
-                loc_text = f"Page{page_num}-{para_num}"
+                loc_text = f"P{page_num}-{para_num}"
         else:
             loc_text = ""
         run = p.add_run(loc_text)
@@ -935,8 +932,8 @@ def main():
     
     # 程序开头说明
     print("=" * 70)
-    print("文档对比工具 - 支持PDF/DOCX/PPTX/TXT格式对比")
-    print("功能：对比两个文档的差异，生成Word格式的对比报告")
+    print("compare_docs.py - 文档对比工具")
+    print("支持PDF/DOCX/PPTX/TXT格式对比，生成Word格式的差异报告")
     print("=" * 70)
     print()
     
@@ -1020,7 +1017,6 @@ def main():
 
     diff_count = len(rows)
     print(f"差异行数: {diff_count}")
-    print(f"对比报告已保存: {output_path}")
 
 
 if __name__ == '__main__':
