@@ -2,7 +2,6 @@
 comparedocscn.py
 
 # Local development tools (not for distribution)
-bump_version.py
 word_line_numbers*.py
 calibrate_line_numbers.py
 translate_to_english.py
