@@ -277,22 +277,16 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 is_new_para = True
             else:
                 # Check if current line belongs to new paragraph
-                # ONLY two conditions trigger a new paragraph:
-                # 1. Obvious indent (4+ spaces)
-                # 2. Line starts with a digit (numbered paragraph/item)
+                # ONLY condition: obvious indent (3+ spaces)
                 stripped = line.lstrip()
                 indent = len(line) - len(stripped)
                 
-                # Condition 1: obvious indent (4+ spaces) - strong indicator
-                if indent >= 4:
+                # New paragraph only if indent >= 3 spaces
+                if indent >= 3:
                     is_new_para = True
                 
-                # Condition 2: line starts with digit (numbered list, section, etc.)
-                elif stripped and stripped[0].isdigit():
-                    is_new_para = True
-                
-                # Note: We do NOT split on hard returns (periods, line breaks, etc.)
-                # All lines without the above indicators are merged into current paragraph
+                # Note: We do NOT split on hard returns, periods, or digit starts
+                # All lines without indent are merged into current paragraph
             
             if is_new_para and current_paragraph:
                 # Save current paragraph
@@ -345,15 +339,11 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                         stripped = line.lstrip()
                         indent = len(line) - len(stripped)
                         
-                        # Condition 1: obvious indent (4+ spaces) - strong indicator
-                        if indent >= 4:
+                        # New paragraph only if indent >= 3 spaces
+                        if indent >= 3:
                             is_new_para = True
                         
-                        # Condition 2: line starts with digit (numbered paragraph/item)
-                        elif stripped and stripped[0].isdigit():
-                            is_new_para = True
-                        
-                        # Note: We do NOT split on hard returns (periods, line breaks, etc.)
+                        # Note: We do NOT split on hard returns, periods, or digit starts
                     
                     if is_new_para and current_paragraph:
                         paragraph_counter += 1
