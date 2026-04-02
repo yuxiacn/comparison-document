@@ -240,32 +240,25 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 # Extract visual line number at line start
                 visual_line_num = None
                 match = line_number_pattern.match(line)
-                # Keep original line for indent detection, process content separately
-                original_line = line
                 if match:
                     try:
                         visual_line_num = int(match.group(1).strip())
-                        # Content without line number (for paragraph text)
-                        line_content = line[match.end():].lstrip()
+                        line = line[match.end():].lstrip()
                     except ValueError:
-                        line_content = line.lstrip()
-                else:
-                    line_content = line.lstrip()
+                        pass
                 
-                if line_content:
-                    # Store: (original line with indent, content without indent, visual line num)
-                    processed_lines.append((original_line, line_content, visual_line_num))
+                if line:
+                    processed_lines.append((line, visual_line_num))
             
             all_pages_lines.append((page_num, processed_lines))
     
     # Cross-page paragraph merging
     if merge_across_pages and merge_lines:
         # Merge all page lines, then process paragraphs uniformly
-        # Each element: (original_line, line_content, visual_line_num, page_num)
         all_lines = []
         for page_num, lines in all_pages_lines:
-            for original_line, line_content, line_num in lines:
-                all_lines.append((original_line, line_content, line_num, page_num))
+            for line, line_num in lines:
+                all_lines.append((line, line_num, page_num))
         
         # Uniform paragraph merging
         current_paragraph = []
@@ -274,30 +267,22 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
         
         i = 0
         while i < len(all_lines):
-            original_line, line_content, visual_line_num, page_num = all_lines[i]
+            line, visual_line_num, page_num = all_lines[i]
             
-            # Check if new paragraph starts (use original_line for indent detection)
-            # Strategy: preserve more structure for smart alignment in build_diff_report
+            # Check if new paragraph starts
             is_new_para = False
             
             if not current_paragraph:
                 # First paragraph starts
                 is_new_para = True
             else:
-                # Check if current line belongs to new paragraph
-                stripped = original_line.lstrip()
-                indent = len(original_line) - len(stripped)
+                # Very conservative: only split on significant indent (8+ spaces)
+                # This prevents splitting on "Fig. 4", section titles, etc.
+                stripped = line.lstrip()
+                indent = len(line) - len(stripped)
                 
-                # Strong indicator: significant indent (4+ spaces)
-                if indent >= 4:
+                if indent >= 8:
                     is_new_para = True
-                # Weak indicator: previous paragraph ends with period AND current starts with uppercase
-                # Only if previous was long enough to be a complete paragraph
-                elif stripped and stripped[0].isupper():
-                    prev_content = current_paragraph[-1] if current_paragraph else ""
-                    if (prev_content and len(prev_content) > 60 and
-                        prev_content[-1] in '.!?'):
-                        is_new_para = True
             
             if is_new_para and current_paragraph:
                 # Save current paragraph
@@ -306,16 +291,16 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 paragraphs.append(para_text)
                 location_info.append((paragraph_counter, current_page or page_num, current_line_num))
                 
-                # Start new paragraph (use line_content, not original_line)
-                current_paragraph = [line_content]
+                # Start new paragraph
+                current_paragraph = [line]
                 current_line_num = visual_line_num
                 current_page = page_num
             else:
-                # Continue current paragraph (use line_content)
+                # Continue current paragraph
                 if not current_paragraph:
                     current_line_num = visual_line_num
                     current_page = page_num
-                current_paragraph.append(line_content)
+                current_paragraph.append(line)
             
             i += 1
         
@@ -333,9 +318,8 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 current_paragraph = []
                 current_line_num = None
                 
-                # Each element: (original_line, line_content, visual_line_num)
-                for original_line, line_content, visual_line_num in lines:
-                    if not line_content:
+                for line, visual_line_num in lines:
+                    if not line:
                         if current_paragraph:
                             paragraph_counter += 1
                             para_text = ' '.join(current_paragraph)
@@ -345,34 +329,26 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                             current_line_num = None
                         continue
                     
-                    # Check new paragraph (use original_line for indent detection)
-                    # Strategy: preserve more structure for smart alignment in build_diff_report
+                    # Check new paragraph - very conservative
                     is_new_para = False
                     if current_paragraph:
-                        stripped = original_line.lstrip()
-                        indent = len(original_line) - len(stripped)
-                        
-                        # Strong indicator: significant indent (4+ spaces)
-                        if indent >= 4:
+                        stripped = line.lstrip()
+                        indent = len(line) - len(stripped)
+                        # Only split on significant indent (8+ spaces)
+                        if indent >= 8:
                             is_new_para = True
-                        # Weak indicator: previous paragraph ends with period AND current starts with uppercase
-                        elif stripped and stripped[0].isupper():
-                            prev_content = current_paragraph[-1] if current_paragraph else ""
-                            if (prev_content and len(prev_content) > 60 and
-                                prev_content[-1] in '.!?'):
-                                is_new_para = True
                     
                     if is_new_para and current_paragraph:
                         paragraph_counter += 1
                         para_text = ' '.join(current_paragraph)
                         paragraphs.append(para_text)
                         location_info.append((paragraph_counter, page_num, current_line_num))
-                        current_paragraph = [line_content]  # Use content without indent
+                        current_paragraph = [line]
                         current_line_num = visual_line_num
                     else:
                         if not current_paragraph:
                             current_line_num = visual_line_num
-                        current_paragraph.append(line_content)  # Use content without indent
+                        current_paragraph.append(line)
                 
                 # Save last paragraph
                 if current_paragraph:
@@ -382,11 +358,10 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                     location_info.append((paragraph_counter, page_num, current_line_num))
             else:
                 # No merging, each line independent
-                # Each element: (original_line, line_content, visual_line_num)
-                for original_line, line_content, visual_line_num in lines:
-                    if line_content:
+                for line, visual_line_num in lines:
+                    if line:
                         paragraph_counter += 1
-                        paragraphs.append(line_content)
+                        paragraphs.append(line)
                         location_info.append((paragraph_counter, page_num, visual_line_num))
     
     return paragraphs, location_info
@@ -632,8 +607,6 @@ def get_word_line_number_offset(doc_path):
 def build_diff_report(lines1, lines2, location_info1=None, location_info2=None):
     """
     Use difflib.SequenceMatcher to analyze differences, return only diff rows.
-    Smart paragraph alignment: when one side has multiple lines corresponding to
-    one line on the other side, merge them for better comparison.
     Each element is (tag, left_loc, left_text, right_loc, right_text)
     tag values: replace, delete, insert
     location format: (paragraph_number, page_number) or None
@@ -647,109 +620,25 @@ def build_diff_report(lines1, lines2, location_info1=None, location_info2=None):
     if location_info2 is None:
         location_info2 = [(i + 1, 1) for i in range(len(lines2))]
 
-    def calc_similarity(text1, text2):
-        """Calculate text similarity ratio"""
-        return difflib.SequenceMatcher(None, text1, text2).ratio()
-    
-    def merge_lines(lines, start, end):
-        """Merge multiple lines into one, preserving location info of first line"""
-        return ' '.join(lines[start:end])
-
     rows = []
     for tag, i1, i2, j1, j2 in opcodes:
         if tag == 'equal':
             continue
         elif tag == 'replace':
-            left_count = i2 - i1
-            right_count = j2 - j1
-            
-            # Case 1: One-to-one or equal count - normal processing
-            if left_count == right_count:
-                for k in range(left_count):
-                    left_loc = location_info1[i1 + k]
-                    right_loc = location_info2[j1 + k]
-                    ltext = lines1[i1 + k]
-                    rtext = lines2[j1 + k]
+            max_len = max(i2 - i1, j2 - j1)
+            for k in range(max_len):
+                left_exists = i1 + k < i2
+                right_exists = j1 + k < j2
+                left_loc = location_info1[i1 + k] if left_exists else None
+                right_loc = location_info2[j1 + k] if right_exists else None
+                ltext = lines1[i1 + k] if left_exists else ""
+                rtext = lines2[j1 + k] if right_exists else ""
+                if left_exists and right_exists:
                     rows.append(('replace', left_loc, ltext, right_loc, rtext))
-            
-            # Case 2: Many-to-one (left has more lines) - try merge left
-            elif left_count > right_count == 1:
-                # Merge all left lines and compare with the single right line
-                merged_left = merge_lines(lines1, i1, i2)
-                right_text = lines2[j1]
-                
-                # Check if merging improves similarity
-                single_similarities = [calc_similarity(lines1[i1 + k], right_text) for k in range(left_count)]
-                merged_similarity = calc_similarity(merged_left, right_text)
-                
-                if merged_similarity > max(single_similarities):
-                    # Use merged version
-                    left_loc = location_info1[i1]  # Use first line's location
-                    right_loc = location_info2[j1]
-                    rows.append(('replace', left_loc, merged_left, right_loc, right_text))
-                else:
-                    # Fall back to line-by-line comparison
-                    for k in range(max(left_count, right_count)):
-                        left_exists = i1 + k < i2
-                        right_exists = j1 + k < j2
-                        left_loc = location_info1[i1 + k] if left_exists else None
-                        right_loc = location_info2[j1 + k] if right_exists else None
-                        ltext = lines1[i1 + k] if left_exists else ""
-                        rtext = lines2[j1 + k] if right_exists else ""
-                        if left_exists and right_exists:
-                            rows.append(('replace', left_loc, ltext, right_loc, rtext))
-                        elif left_exists:
-                            rows.append(('delete', left_loc, ltext, None, ""))
-                        elif right_exists:
-                            rows.append(('insert', None, "", right_loc, rtext))
-            
-            # Case 3: One-to-many (right has more lines) - try merge right
-            elif right_count > left_count == 1:
-                # Merge all right lines and compare with the single left line
-                left_text = lines1[i1]
-                merged_right = merge_lines(lines2, j1, j2)
-                
-                # Check if merging improves similarity
-                single_similarities = [calc_similarity(left_text, lines2[j1 + k]) for k in range(right_count)]
-                merged_similarity = calc_similarity(left_text, merged_right)
-                
-                if merged_similarity > max(single_similarities):
-                    # Use merged version
-                    left_loc = location_info1[i1]
-                    right_loc = location_info2[j1]  # Use first line's location
-                    rows.append(('replace', left_loc, left_text, right_loc, merged_right))
-                else:
-                    # Fall back to line-by-line comparison
-                    for k in range(max(left_count, right_count)):
-                        left_exists = i1 + k < i2
-                        right_exists = j1 + k < j2
-                        left_loc = location_info1[i1 + k] if left_exists else None
-                        right_loc = location_info2[j1 + k] if right_exists else None
-                        ltext = lines1[i1 + k] if left_exists else ""
-                        rtext = lines2[j1 + k] if right_exists else ""
-                        if left_exists and right_exists:
-                            rows.append(('replace', left_loc, ltext, right_loc, rtext))
-                        elif left_exists:
-                            rows.append(('delete', left_loc, ltext, None, ""))
-                        elif right_exists:
-                            rows.append(('insert', None, "", right_loc, rtext))
-            
-            # Case 4: Many-to-many - use line-by-line with best effort alignment
-            else:
-                for k in range(max(left_count, right_count)):
-                    left_exists = i1 + k < i2
-                    right_exists = j1 + k < j2
-                    left_loc = location_info1[i1 + k] if left_exists else None
-                    right_loc = location_info2[j1 + k] if right_exists else None
-                    ltext = lines1[i1 + k] if left_exists else ""
-                    rtext = lines2[j1 + k] if right_exists else ""
-                    if left_exists and right_exists:
-                        rows.append(('replace', left_loc, ltext, right_loc, rtext))
-                    elif left_exists:
-                        rows.append(('delete', left_loc, ltext, None, ""))
-                    elif right_exists:
-                        rows.append(('insert', None, "", right_loc, rtext))
-                        
+                elif left_exists and not right_exists:
+                    rows.append(('delete', left_loc, ltext, None, ""))
+                elif not left_exists and right_exists:
+                    rows.append(('insert', None, "", right_loc, rtext))
         elif tag == 'delete':
             for k in range(i2 - i1):
                 left_loc = location_info1[i1 + k]
