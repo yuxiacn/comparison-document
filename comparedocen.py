@@ -276,19 +276,13 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 # First paragraph starts
                 is_new_para = True
             else:
-                # New paragraph starts when:
-                # Previous paragraph ended with sentence terminator (.!?)
-                # AND current line has indent (any amount)
-                prev_line = current_paragraph[-1]
+                # New paragraph starts ONLY when current line has indent
+                # Regardless of previous line content or punctuation
                 stripped = line.lstrip()
                 indent = len(line) - len(stripped)
                 
-                # Check if previous paragraph ended (last line ends with .!?)
-                prev_ended = prev_line and prev_line[-1] in '.!?'
-                # Check if current line has indent (new paragraph start)
-                has_indent = indent > 0
-                
-                if prev_ended and has_indent:
+                # Has indent (> 0) = new paragraph start
+                if indent > 0:
                     is_new_para = True
             
             if is_new_para and current_paragraph:
@@ -336,16 +330,13 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                             current_line_num = None
                         continue
                     
-                    # Check new paragraph - both conditions required
+                    # Check new paragraph - indent only
                     is_new_para = False
                     if current_paragraph:
-                        prev_line = current_paragraph[-1]
                         stripped = line.lstrip()
                         indent = len(line) - len(stripped)
-                        # Previous paragraph ended AND current has indent
-                        prev_ended = prev_line and prev_line[-1] in '.!?'
-                        has_indent = indent > 0
-                        if prev_ended and has_indent:
+                        # Has indent (> 0) = new paragraph start
+                        if indent > 0:
                             is_new_para = True
                     
                     if is_new_para and current_paragraph:
