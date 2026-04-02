@@ -276,12 +276,15 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 # First paragraph starts
                 is_new_para = True
             else:
-                # Very conservative: only split on significant indent (8+ spaces)
-                # This prevents splitting on "Fig. 4", section titles, etc.
+                # New paragraph requires BOTH conditions:
+                # 1. Previous line ends with sentence terminator (hard return)
+                # 2. Current line has indent (paragraph start)
+                prev_line = current_paragraph[-1]
                 stripped = line.lstrip()
                 indent = len(line) - len(stripped)
                 
-                if indent >= 8:
+                # Condition 1: previous ends with .!? AND Condition 2: has indent (>= 4 spaces)
+                if (prev_line and prev_line[-1] in '.!?' and indent >= 4):
                     is_new_para = True
             
             if is_new_para and current_paragraph:
@@ -329,13 +332,14 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                             current_line_num = None
                         continue
                     
-                    # Check new paragraph - very conservative
+                    # Check new paragraph - both conditions required
                     is_new_para = False
                     if current_paragraph:
+                        prev_line = current_paragraph[-1]
                         stripped = line.lstrip()
                         indent = len(line) - len(stripped)
-                        # Only split on significant indent (8+ spaces)
-                        if indent >= 8:
+                        # Condition 1: previous ends with .!? AND Condition 2: has indent
+                        if (prev_line and prev_line[-1] in '.!?' and indent >= 4):
                             is_new_para = True
                     
                     if is_new_para and current_paragraph:
