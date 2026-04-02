@@ -54,10 +54,14 @@ def estimate_visual_lines(text, chars_per_line=80):
 
 @register_reader('.txt')
 def read_txt(path):
+    """读取TXT，返回内容列表和位置信息(段落号, 页码=1)"""
     with open(path, 'r', encoding='utf-8') as f:
         text = f.read()
     lines = text.splitlines()
-    return [ln.rstrip() for ln in lines]
+    lines = [ln.rstrip() for ln in lines if ln.strip()]  # 过滤空行
+    # TXT没有真实页码，所有段落标记为第1页
+    location_info = [(i + 1, 1) for i in range(len(lines))]
+    return lines, location_info
 
 
 def estimate_paragraph_pages(doc):
@@ -155,48 +159,50 @@ def read_docx(path, use_precise=True):
 
 @register_reader('.pdf')
 def read_pdf(path):
+    """读取PDF，返回内容列表和位置信息(段落号, 页码)"""
     try:
         import pdfplumber
     except ImportError:
         raise ImportError("请安装 pdfplumber 以支持 PDF 读取: pip install pdfplumber")
     lines = []
-    visual_line_map = []
-    current_visual_line = 1
+    location_info = []
+    paragraph_counter = 0
     
     with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
+        for page_num, page in enumerate(pdf.pages, 1):
             text = page.extract_text()
             if text:
                 page_lines = text.splitlines()
                 for line in page_lines:
                     line = line.rstrip()
-                    lines.append(line)
-                    visual_line_map.append(current_visual_line)
-                    visual_lines = estimate_visual_lines(line, chars_per_line=80)
-                    current_visual_line += visual_lines
+                    if line:  # 只处理非空行
+                        paragraph_counter += 1
+                        lines.append(line)
+                        location_info.append((paragraph_counter, page_num))
     
-    return lines, visual_line_map
+    return lines, location_info
 
 
 @register_reader('.pptx')
 def read_pptx(path):
+    """读取PPTX，返回内容列表和位置信息(段落号, 幻灯片号)"""
     from pptx import Presentation
     prs = Presentation(path)
     lines = []
-    visual_line_map = []
-    current_visual_line = 1
+    location_info = []
+    paragraph_counter = 0
     
-    for slide in prs.slides:
+    for slide_num, slide in enumerate(prs.slides, 1):
         for shape in slide.shapes:
             if hasattr(shape, "text"):
                 for ln in shape.text.splitlines():
                     line = ln.rstrip()
-                    lines.append(line)
-                    visual_line_map.append(current_visual_line)
-                    visual_lines = estimate_visual_lines(line, chars_per_line=80)
-                    current_visual_line += visual_lines
+                    if line:  # 只处理非空行
+                        paragraph_counter += 1
+                        lines.append(line)
+                        location_info.append((paragraph_counter, slide_num))
     
-    return lines, visual_line_map
+    return lines, location_info
 
 
 def read_document(path, use_precise=True):
