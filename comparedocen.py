@@ -20,7 +20,7 @@ from docx.enum.section import WD_ORIENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-# 版本号
+# Version number
 # Format: V{major}.{minor} Build{YYYYMMDD}.{revision}
 # Update Rules:
 #   - Major updates: increment major version (e.g., V2.0 → V3.0)
@@ -29,7 +29,7 @@ from docx.oxml import OxmlElement
 #   - Update date and revision with each modification
 VERSION = "V2.0 Build20260403.1"
 
-# 读取器注册表
+# Reader registry
 READERS = {}
 
 
@@ -42,33 +42,33 @@ def register_reader(ext):
 
 def estimate_visual_lines(text, chars_per_line=80):
     """
-    估算文本的视觉行数（模拟Word自动换行）
-    Consider mixed Chinese/English text, Chinese chars ~2x English width
+    Estimate the visual line count of text (simulating Word auto-wrap)
+    Consider mixed content, wide characters take ~2x narrow character width
     """
     if not text.strip():
-        return 1  # 空行也算一行
+        return 1  # Empty line counts as one line
     
-    # 计算等效字符数（中文字符算2个宽度）
+    # Calculate effective character count (wide characters count as 2 width)
     effective_chars = 0
     for char in text:
-        if '\u4e00' <= char <= '\u9fff':  # 中文字符
+        if ord(char) > 127:  # Non-ASCII characters (wide)
             effective_chars += 2
         else:
             effective_chars += 1
     
-    # 计算需要的行数
+    # Calculate required lines
     lines_needed = max(1, (effective_chars + chars_per_line - 1) // chars_per_line)
     return lines_needed
 
 
 @register_reader('.txt')
 def read_txt(path, merge_lines=False):
-    """读取TXT，返回内容列表和位置信息(paragraphs号, page number=1, None)"""
+    """Read TXT file, return content list and location info (paragraph number, page number=1, None)"""
     with open(path, 'r', encoding='utf-8') as f:
         text = f.read()
     
     if merge_lines:
-        # 合并连续非空行（处理自动换行的情况）
+        # Merge consecutive non-empty lines (handle auto-wrap cases)
         lines = text.splitlines()
         paragraphs = []
         current_para = []
@@ -89,41 +89,41 @@ def read_txt(path, merge_lines=False):
     else:
         lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
     
-    # TXT没有真实page number和line number
+    # TXT has no real page number and line number
     location_info = [(i + 1, 1, None) for i in range(len(lines))]
     return lines, location_info
 
 
 def estimate_paragraph_pages(doc):
     """
-    估算每个paragraphs的page number
-    Returns: [page_number, ...] 与paragraphs一一对应
+    Estimate page number for each paragraph
+    Returns: [page_number, ...] corresponding to paragraphs
     """
-    # 获取页面设置
+    # Get page settings
     section = doc.sections[0] if doc.sections else None
     
     if section:
-        # 页面高度（英寸）
+        # Page height (inches)
         page_height = section.page_height.inches if section.page_height else 11
-        # 上下边距
+        # Top and bottom margins
         top_margin = section.top_margin.inches if section.top_margin else 1
         bottom_margin = section.bottom_margin.inches if section.bottom_margin else 1
-        # 可用高度
+        # Available height
         available_height = page_height - top_margin - bottom_margin
     else:
-        available_height = 9  # 默认可用高度
+        available_height = 9  # Default available height
     
     page_numbers = []
     current_page = 1
     current_page_used_height = 0
     
-    # 估算每英寸高度可容纳的 12pt 文字行数（约5-6行）
+    # Estimate lines per inch for 12pt text (about 5-6 lines)
     lines_per_inch = 5.5
     
     for para in doc.paragraphs:
         text = para.text.rstrip()
         
-        # 获取字体大小
+        # Get font size
         font_size = 12
         try:
             if para.runs and para.runs[0].font.size:
@@ -131,23 +131,23 @@ def estimate_paragraph_pages(doc):
         except:
             pass
         
-        # 计算该paragraphs占用的高度（英寸）
-        # 字体越大，行高越大
+        # Calculate paragraph height (inches)
+        # Larger font means larger line height
         line_height = (font_size / 12) * (1 / lines_per_inch)
         
-        # 估算paragraphs行数（简单估算）
-        effective_chars = sum(2 if '\u4e00' <= c <= '\u9fff' else 1 for c in text)
-        chars_per_line = 80  # 简化估算
+        # Estimate paragraph lines (simple estimation)
+        effective_chars = sum(2 if ord(c) > 127 else 1 for c in text)
+        chars_per_line = 80  # Simplified estimation
         lines_needed = max(1, (effective_chars + chars_per_line - 1) // chars_per_line)
         
         para_height = lines_needed * line_height
         
-        # paragraphs前后间距
+        # Paragraph spacing before and after
         space_before = 0
         space_after = 0
         try:
             if para.paragraph_format.space_before:
-                space_before = para.paragraph_format.space_before.pt / 72  # 转换为英寸
+                space_before = para.paragraph_format.space_before.pt / 72  # Convert to inches
             if para.paragraph_format.space_after:
                 space_after = para.paragraph_format.space_after.pt / 72
         except:
@@ -155,7 +155,7 @@ def estimate_paragraph_pages(doc):
         
         total_height = space_before + para_height + space_after
         
-        # 检查是否跨页
+        # Check if page break needed
         if current_page_used_height + total_height > available_height:
             current_page += 1
             current_page_used_height = total_height
@@ -170,17 +170,17 @@ def estimate_paragraph_pages(doc):
 @register_reader('.docx')
 def read_docx(path, use_precise=True):
     """
-    读取docx，返回内容列表和位置信息
+    Read docx file, return content list and location info
     Location format: [(paragraph_number, page_number, line_number), ...]
     DOCX has no visual line numbers, so line_number is None
     """
     doc = Document(path)
     lines = [para.text.rstrip() for para in doc.paragraphs]
     
-    # 估算page number
+    # Estimate page number
     page_numbers = estimate_paragraph_pages(doc)
     
-    # 构建位置信息 (paragraphs号, page number, None)
+    # Build location info (paragraph number, page number, None)
     location_info = []
     for i, page_num in enumerate(page_numbers):
         location_info.append((i + 1, page_num, None))
@@ -191,7 +191,7 @@ def read_docx(path, use_precise=True):
 @register_reader('.pdf')
 def read_pdf(path, merge_lines=True, merge_across_pages=True):
     """
-    读取PDF，返回内容列表和位置信息(paragraphs号, page number, line number)
+    Read PDF file, return content list and location info (paragraph number, page number, line number)
     
     Args:
         merge_lines: whether to merge consecutive non-empty lines into a paragraph
@@ -204,19 +204,19 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
     try:
         import pdfplumber
     except ImportError:
-        raise ImportError("请安装 pdfplumber 以支持 PDF 读取: pip install pdfplumber")
+        raise ImportError("Please install pdfplumber for PDF support: pip install pdfplumber")
     
     paragraphs = []
     location_info = []
     paragraph_counter = 0
     
-    # 用于识别page number的模式：单独的数字行（1-4位数字）
+    # Pattern to identify page numbers: standalone numeric lines (1-4 digits)
     import re
     page_number_pattern = re.compile(r'^\s*\d{1,4}\s*$')
-    # 用于识别行首的视觉line number：行开头的数字（空格+数字+空格或句点）
+    # Pattern to identify visual line numbers at line start: (spaces+digits+space or dot)
     line_number_pattern = re.compile(r'^(\s*\d+)[\.\s]\s*')
     
-    # 先收集所有页面的原始行信息
+    # Collect raw line info from all pages first
     all_pages_lines = []  # [(page_num, lines), ...]
     
     with pdfplumber.open(path) as pdf:
@@ -233,11 +233,11 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 line = line.rstrip()
                 if not line:
                     continue
-                # 过滤page number行
+                # Filter page number lines
                 if page_number_pattern.match(line):
                     continue
                 
-                # 提取行首的视觉line number
+                # Extract visual line number at line start
                 visual_line_num = None
                 match = line_number_pattern.match(line)
                 if match:
@@ -252,15 +252,15 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
             
             all_pages_lines.append((page_num, processed_lines))
     
-    # 跨页paragraphs合并处理
+    # Cross-page paragraph merging
     if merge_across_pages and merge_lines:
-        # 将所有页面的行合并，然后统一处理paragraphs
+        # Merge all page lines, then process paragraphs uniformly
         all_lines = []
         for page_num, lines in all_pages_lines:
             for line, line_num in lines:
                 all_lines.append((line, line_num, page_num))
         
-        # 统一处理paragraphs合并
+        # Uniform paragraph merging
         current_paragraph = []
         current_line_num = None
         current_page = None
@@ -269,44 +269,44 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
         while i < len(all_lines):
             line, visual_line_num, page_num = all_lines[i]
             
-            # 检查是否是新paragraphs的开始
+            # Check if new paragraph starts
             is_new_para = False
             
             if not current_paragraph:
-                # 第一个paragraphs开始
+                # First paragraph starts
                 is_new_para = True
             else:
-                # 检查当前行是否属于新paragraphs
+                # Check if current line belongs to new paragraph
                 stripped = line.lstrip()
                 indent = len(line) - len(stripped)
                 
-                # 条件1: 明显缩进（4空格以上）
+                # Condition 1: obvious indent (4+ spaces)
                 if indent >= 4:
                     is_new_para = True
-                # 条件2: 上一行以句号等结束，且当前行以大写或数字开头
+                # Condition 2: previous line ends with period etc, current starts with uppercase or digit
                 else:
                     prev_line = current_paragraph[-1]
-                    if prev_line and prev_line[-1] in '.。!?':
+                    if prev_line and prev_line[-1] in '.!?':
                         if stripped and (stripped[0].isupper() or stripped[0].isdigit()):
                             is_new_para = True
-                    # 条件3: 当前行是空行分隔（已过滤）或line number重置（明显变小）
+                    # Condition 3: line number reset (obviously smaller)
                     if visual_line_num and current_line_num:
                         if visual_line_num < current_line_num and visual_line_num < 10:
                             is_new_para = True
             
             if is_new_para and current_paragraph:
-                # 保存当前paragraphs
+                # Save current paragraph
                 paragraph_counter += 1
                 para_text = ' '.join(current_paragraph)
                 paragraphs.append(para_text)
                 location_info.append((paragraph_counter, current_page or page_num, current_line_num))
                 
-                # 开始新paragraphs
+                # Start new paragraph
                 current_paragraph = [line]
                 current_line_num = visual_line_num
                 current_page = page_num
             else:
-                # 继续当前paragraphs
+                # Continue current paragraph
                 if not current_paragraph:
                     current_line_num = visual_line_num
                     current_page = page_num
@@ -314,7 +314,7 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
             
             i += 1
         
-        # 保存最后一个paragraphs
+        # Save last paragraph
         if current_paragraph:
             paragraph_counter += 1
             para_text = ' '.join(current_paragraph)
@@ -322,7 +322,7 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
             location_info.append((paragraph_counter, current_page, current_line_num))
     
     else:
-        # 逐页处理，不跨页合并
+        # Process page by page, no cross-page merging
         for page_num, lines in all_pages_lines:
             if merge_lines:
                 current_paragraph = []
@@ -339,7 +339,7 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                             current_line_num = None
                         continue
                     
-                    # 检查新paragraphs
+                    # Check new paragraph
                     is_new_para = False
                     if current_paragraph:
                         stripped = line.lstrip()
@@ -347,7 +347,7 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                         if indent >= 4:
                             is_new_para = True
                         prev_line = current_paragraph[-1]
-                        if prev_line and prev_line[-1] in '.。!?':
+                        if prev_line and prev_line[-1] in '.!?':
                             if stripped and not stripped[0].islower():
                                 is_new_para = True
                     
@@ -363,14 +363,14 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                             current_line_num = visual_line_num
                         current_paragraph.append(line)
                 
-                # 保存最后一个paragraphs
+                # Save last paragraph
                 if current_paragraph:
                     paragraph_counter += 1
                     para_text = ' '.join(current_paragraph)
                     paragraphs.append(para_text)
                     location_info.append((paragraph_counter, page_num, current_line_num))
             else:
-                # 不合并，每行独立
+                # No merging, each line independent
                 for line, visual_line_num in lines:
                     if line:
                         paragraph_counter += 1
@@ -382,7 +382,7 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
 
 @register_reader('.pptx')
 def read_pptx(path):
-    """读取PPTX，返回内容列表和位置信息(paragraphs号, 幻灯片号, None)"""
+    """Read PPTX file, return content list and location info (paragraph number, slide number, None)"""
     from pptx import Presentation
     prs = Presentation(path)
     lines = []
@@ -394,7 +394,7 @@ def read_pptx(path):
             if hasattr(shape, "text"):
                 for ln in shape.text.splitlines():
                     line = ln.rstrip()
-                    if line:  # 只处理非空行
+                    if line:  # Only process non-empty lines
                         paragraph_counter += 1
                         lines.append(line)
                         location_info.append((paragraph_counter, slide_num, None))
@@ -404,17 +404,17 @@ def read_pptx(path):
 
 def read_document(path, use_precise=True, merge_lines=True, merge_across_pages=True):
     """
-    读取文档内容
+    Read document content
     use_precise: for DOCX, whether to use precise visual line number calculation
     merge_lines: for PDF/TXT, whether to merge consecutive lines
     merge_across_pages: for PDF, whether to merge paragraphs across pages
     """
     ext = Path(path).suffix.lower()
     if ext not in READERS:
-        raise ValueError(f"不支持的文件格式: {ext}。当前支持: {', '.join(READERS.keys())}")
+        raise ValueError(f"Unsupported file format: {ext}. Currently supported: {', '.join(READERS.keys())}")
     
     reader = READERS[ext]
-    # 对不同格式传递相应参数
+    # Pass appropriate parameters for different formats
     if ext == '.docx':
         return reader(path, use_precise=use_precise)
     elif ext == '.pdf':
@@ -425,10 +425,9 @@ def read_document(path, use_precise=True, merge_lines=True, merge_across_pages=T
         return reader(path)
 
 
-def set_run_font(run, font_name='Times New Roman', east_asia='宋体', size=Pt(10), bold=False):
-    """统一设置中英文字体"""
-    run.font.name = font_name
-    run._element.rPr.rFonts.set(qn('w:eastAsia'), east_asia)
+def set_run_font(run, font_family='"Times New Roman", "Noto Serif", Georgia, serif', size=Pt(10), bold=False):
+    """Set font family for the run"""
+    run.font.name = font_family
     run.font.size = size
     if bold:
         run.font.bold = True
@@ -442,7 +441,7 @@ def add_colored_run(paragraph, text, rgb, bold=False):
 
 
 def add_page_number(paragraph):
-    """在paragraphs中添加page number字段"""
+    """Add page number field to paragraph"""
     run = paragraph.add_run()
     fldChar1 = OxmlElement('w:fldChar')
     fldChar1.set(qn('w:fldCharType'), 'begin')
@@ -462,7 +461,7 @@ def add_page_number(paragraph):
 
 def tokenize_text(text):
     """
-    将文本拆分为单词和分隔符（空格/标点等）。
+    Split text into words and separators (spaces/punctuation etc).
     Preserve all content for later reassembly.
     """
     return re.findall(r'\S+|\s+', text)
@@ -470,30 +469,30 @@ def tokenize_text(text):
 
 def split_sentences(text):
     """
-    将文本按句子分割，保留分隔符。
-    Sentence delimiters: Chinese period, English period, question mark, exclamation mark
+    Split text by sentences, keeping delimiters.
+    Sentence delimiters: period, question mark, exclamation mark
     """
     if not text.strip():
         return []
-    # 按句子分隔符分割，保留分隔符
-    parts = re.split(r'([。！？.!?])', text)
+    # Split by sentence delimiters, keeping delimiters
+    parts = re.split(r'([.!?])', text)
     sentences = []
     current = ''
     for part in parts:
         current += part
-        if re.match(r'[。！？.!?]$', part):
-            # 遇到句子结束符，完成一个句子
+        if re.match(r'[.!?]$', part):
+            # Encountered sentence end, complete a sentence
             sentences.append(current)
             current = ''
     if current.strip():
-        # 剩余内容（可能是不完整的句子）也作为一个句子
+        # Remaining content (possibly incomplete sentence) also as a sentence
         sentences.append(current)
     return sentences
 
 
 def word_diff_runs(text1, text2):
     """
-    单词级精细差异分析，支持句子级缺失检测。
+    Word-level fine-grained difference analysis, supporting sentence-level missing detection.
     Returns left_runs and right_runs, each is a list of (text, is_diff, is_placeholder).
     is_placeholder=True indicates a missing content placeholder [Missing Sentence]
     
@@ -502,16 +501,16 @@ def word_diff_runs(text1, text2):
     2. Compare at sentence level
     3. When one side has a complete sentence (with delimiter) and the other does not, show placeholder
     """
-    # 首先尝试句子级对比
+    # First try sentence-level comparison
     sents1 = split_sentences(text1)
     sents2 = split_sentences(text2)
     
-    # 如果都能分割成句子，进行句子级对比
+    # If both can be split into sentences, do sentence-level comparison
     if len(sents1) > 0 and len(sents2) > 0:
         sm_sents = difflib.SequenceMatcher(None, sents1, sents2, autojunk=False)
         opcodes = sm_sents.get_opcodes()
         
-        # 检查是否有句子级别的 delete/insert
+        # Check for sentence-level delete/insert
         has_sentence_level_diff = any(
             tag in ('delete', 'insert') for tag, _, _, _, _ in opcodes
         )
@@ -527,7 +526,7 @@ def word_diff_runs(text1, text2):
                     for k in range(j1, min(j2, len(sents2))):
                         right_runs.append((sents2[k], False, False))
                 elif tag == 'replace':
-                    # 替换：两边内容不同
+                    # Replace: different content on both sides
                     max_len = max(i2 - i1, j2 - j1)
                     for k in range(max_len):
                         if i1 + k < i2 and i1 + k < len(sents1):
@@ -535,17 +534,17 @@ def word_diff_runs(text1, text2):
                         if j1 + k < j2 and j1 + k < len(sents2):
                             right_runs.append((sents2[j1 + k], True, False))
                 elif tag == 'delete':
-                    # 左边有句子，右边缺失整句
+                    # Left has sentence, right missing entire sentence
                     for k in range(i1, min(i2, len(sents1))):
                         left_runs.append((sents1[k], True, False))
                         right_runs.append(('[Missing Sentence]', True, True))
                 elif tag == 'insert':
-                    # 右边有句子，左边缺失整句
+                    # Right has sentence, left missing entire sentence
                     for k in range(j1, min(j2, len(sents2))):
                         left_runs.append(('[Missing Sentence]', True, True))
                         right_runs.append((sents2[k], True, False))
             
-            # 合并连续的 [Missing Sentence] 占位符
+            # Merge consecutive [Missing Sentence] placeholders
             def merge_consecutive_placeholders(runs):
                 if not runs:
                     return runs
@@ -553,7 +552,7 @@ def word_diff_runs(text1, text2):
                 for i in range(1, len(runs)):
                     prev_text, prev_diff, prev_placeholder = merged[-1]
                     curr_text, curr_diff, curr_placeholder = runs[i]
-                    # 如果前一个是占位符且当前也是占位符，跳过当前（合并）
+                    # If previous is placeholder and current is also placeholder, skip current
                     if prev_placeholder and curr_placeholder:
                         continue
                     merged.append((curr_text, curr_diff, curr_placeholder))
@@ -564,7 +563,7 @@ def word_diff_runs(text1, text2):
             
             return left_runs, right_runs
     
-    # 回退到单词级对比（不显示占位符）
+    # Fallback to word-level comparison (no placeholders)
     tokens1 = tokenize_text(text1)
     tokens2 = tokenize_text(text2)
     sm = difflib.SequenceMatcher(None, tokens1, tokens2, autojunk=False)
@@ -600,16 +599,16 @@ def word_diff_runs(text1, text2):
 
 def get_word_line_number_offset(doc_path):
     """
-    尝试读取 Word 文档的line number设置，返回line number起始偏移量。
-    如果文档启用了line number，返回line number起始值；否则返回 None。
+    Try to read Word document line number settings, return line number start offset.
+    If document has line numbers enabled, return line number start value; otherwise return None.
     """
     try:
         doc = Document(doc_path)
         for section in doc.sections:
-            # 尝试获取line number设置
+            # Try to get line number settings
             sectPr = section._sectPr
             if hasattr(sectPr, 'lnNumType') and sectPr.lnNumType is not None:
-                # 文档启用了line number
+                # Document has line numbers enabled
                 lnNumType = sectPr.lnNumType
                 start = getattr(lnNumType, 'start', 1)
                 return int(start) if start else 1
@@ -620,15 +619,15 @@ def get_word_line_number_offset(doc_path):
 
 def build_diff_report(lines1, lines2, location_info1=None, location_info2=None):
     """
-    使用 difflib.SequenceMatcher 分析差异，返回仅包含差异行的数据。
+    Use difflib.SequenceMatcher to analyze differences, return only diff rows.
     Each element is (tag, left_loc, left_text, right_loc, right_text)
     tag values: replace, delete, insert
-    location 格式: (paragraph_number, page_number) 或 None
+    location format: (paragraph_number, page_number) or None
     """
     sm = difflib.SequenceMatcher(None, lines1, lines2, autojunk=False)
     opcodes = sm.get_opcodes()
     
-    # 如果没有提供位置信息，使用默认的paragraphs索引+1
+    # If no location info provided, use default paragraph index+1
     if location_info1 is None:
         location_info1 = [(i + 1, 1) for i in range(len(lines1))]
     if location_info2 is None:
@@ -668,7 +667,7 @@ def build_diff_report(lines1, lines2, location_info1=None, location_info2=None):
 
 
 def set_cell_width(cell, width_inches):
-    """通过底层 XML 强制设置单元格宽度"""
+    """Force set cell width via underlying XML"""
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
     tcW = OxmlElement('w:tcW')
@@ -679,7 +678,7 @@ def set_cell_width(cell, width_inches):
 
 def set_table_column_widths(table, widths_inches):
     """
-    通过底层 XML 精确设置表格各列宽度及总宽度。
+    Precisely set table column widths and total width via underlying XML.
     widths_inches: list of width values in inches for each column
     """
     tbl = table._tbl
@@ -707,7 +706,7 @@ def set_table_column_widths(table, widths_inches):
 def generate_docx(rows, name1, name2, output_path):
     doc = Document()
 
-    # 设置为横向（Landscape），并应用标准 1 英寸页边距
+    # Set to landscape orientation with standard 1 inch margins
     section = doc.sections[0]
     section.orientation = WD_ORIENT.LANDSCAPE
     new_width, new_height = section.page_height, section.page_width
@@ -718,27 +717,27 @@ def generate_docx(rows, name1, name2, output_path):
     section.top_margin = Inches(1)
     section.bottom_margin = Inches(1)
 
-    # 添加页脚page number
+    # Add footer page number
     footer = section.footer
     footer_para = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
     footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = add_page_number(footer_para)
     set_run_font(run, size=Pt(9))
 
-    # 颜色定义
-    color_left = (0, 112, 192)    # 蓝色
-    color_right = (255, 0, 0)     # 红色
-    color_mark_replace = (255, 140, 0)  # 橙色
+    # Color definitions
+    color_left = (0, 112, 192)    # Blue
+    color_right = (255, 0, 0)     # Red
+    color_mark_replace = (255, 140, 0)  # Orange
     color_gray = (100, 100, 100)
-    color_placeholder = (0, 176, 80)  # 绿色，用于缺失句子
+    color_placeholder = (0, 176, 80)  # Green, for missing sentences
 
     # First line: Document Comparison Report
     p_title = doc.add_paragraph()
     p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = p_title.add_run('Document Comparison Report')
-    set_run_font(run, font_name='Noto Serif', east_asia='Noto Serif', size=Pt(18), bold=True)
+    set_run_font(run, size=Pt(18), bold=True)
 
-    # 第二行：两个文档名称
+    # Second line: two document names
     p_names = doc.add_paragraph()
     p_names.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = p_names.add_run(name1)
@@ -750,7 +749,7 @@ def generate_docx(rows, name1, name2, output_path):
     set_run_font(run, size=Pt(14), bold=True)
     run.font.color.rgb = RGBColor(*color_right)
 
-    # 第三行：生成日期时间
+    # Third line: generation date and time
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
     p_time = doc.add_paragraph()
     p_time.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -758,32 +757,32 @@ def generate_docx(rows, name1, name2, output_path):
     set_run_font(run, size=Pt(12), bold=True)
     run.font.color.rgb = RGBColor(*color_gray)
 
-    # 时间行与图例行之间空一行
+    # Empty line between time and legend
     doc.add_paragraph()
 
-    # 图例说明（宋体）
+    # Legend description
     p = doc.add_paragraph()
     run = p.add_run('Legend: ')
-    set_run_font(run, east_asia='宋体', bold=False)
+    set_run_font(run, bold=False)
     run = p.add_run(' = : identical content (hidden)  ')
-    set_run_font(run, east_asia='宋体', bold=False)
+    set_run_font(run, bold=False)
     run = p.add_run('≠ ')
-    set_run_font(run, east_asia='宋体', bold=False)
+    set_run_font(run, bold=False)
     run.font.color.rgb = RGBColor(*color_mark_replace)
     run = p.add_run(': modified content  ')
-    set_run_font(run, east_asia='宋体', bold=False)
+    set_run_font(run, bold=False)
     run = p.add_run('- ')
-    set_run_font(run, east_asia='宋体', bold=False)
+    set_run_font(run, bold=False)
     run.font.color.rgb = RGBColor(*color_left)
     run = p.add_run(': deleted content  ')
-    set_run_font(run, east_asia='宋体', bold=False)
+    set_run_font(run, bold=False)
     run = p.add_run('+ ')
-    set_run_font(run, east_asia='宋体', bold=False)
+    set_run_font(run, bold=False)
     run.font.color.rgb = RGBColor(*color_right)
     run = p.add_run(': added content  ')
-    set_run_font(run, east_asia='宋体', bold=False)
+    set_run_font(run, bold=False)
     run = p.add_run('P: page number  L: line number')
-    set_run_font(run, east_asia='宋体', bold=False)
+    set_run_font(run, bold=False)
 
     if not rows:
         p = doc.add_paragraph()
@@ -794,7 +793,7 @@ def generate_docx(rows, name1, name2, output_path):
         doc.save(output_path)
         return
 
-    # 表格：5列（总宽度 8.8 英寸，适应 1 英寸边距的横向页面）
+    # Table: 5 columns (total width 8.8 inches, fits 1-inch margin landscape page)
     table = doc.add_table(rows=1, cols=5)
     table.style = 'Table Grid'
     table.autofit = False
@@ -803,7 +802,7 @@ def generate_docx(rows, name1, name2, output_path):
     col_widths = [0.75, 3.50, 0.60, 0.75, 3.50]
     set_table_column_widths(table, col_widths)
 
-    # 设置表头 - 改为显示page number-paragraphs号
+    # Set headers - display page number-paragraph number
     hdr_cells = table.rows[0].cells
     headers = ['Location', name1, 'Mark', 'Location', name2]
     header_colors = [None, color_left, None, None, color_right]
@@ -821,13 +820,13 @@ def generate_docx(rows, name1, name2, output_path):
     for tag, left_loc, ltext, right_loc, rtext in rows:
         row_cells = table.add_row().cells
 
-        # 位置1 - 格式: Ppage number-Lline number（或 Ppage number-paragraphs号）
+        # Location 1 - Format: Ppage number-Lline number (or Ppage number-paragraph number)
         cell = row_cells[0]
         set_cell_width(cell, col_widths[0])
         p = cell.paragraphs[0]
         p.clear()
         if left_loc is not None:
-            # 处理三元组 (para_num, page_num, line_num) 或二元组 (para_num, page_num)
+            # Handle tuple (para_num, page_num, line_num) or (para_num, page_num)
             if len(left_loc) >= 3:
                 para_num, page_num, line_num = left_loc[0], left_loc[1], left_loc[2]
                 if line_num:
@@ -844,13 +843,13 @@ def generate_docx(rows, name1, name2, output_path):
         run.font.color.rgb = RGBColor(*color_gray)
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-        # 位置2 - 格式: Ppage number-Lline number（或 Ppage number-paragraphs号）
+        # Location 2 - Format: Ppage number-Lline number (or Ppage number-paragraph number)
         cell = row_cells[3]
         set_cell_width(cell, col_widths[3])
         p = cell.paragraphs[0]
         p.clear()
         if right_loc is not None:
-            # 处理三元组或二元组
+            # Handle tuple or triplet
             if len(right_loc) >= 3:
                 para_num, page_num, line_num = right_loc[0], right_loc[1], right_loc[2]
                 if line_num:
@@ -867,7 +866,7 @@ def generate_docx(rows, name1, name2, output_path):
         run.font.color.rgb = RGBColor(*color_gray)
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-        # 内容1
+        # Content 1
         cell = row_cells[1]
         set_cell_width(cell, col_widths[1])
         p1 = cell.paragraphs[0]
@@ -876,7 +875,7 @@ def generate_docx(rows, name1, name2, output_path):
             runs1, _ = word_diff_runs(ltext, rtext)
             for text_seg, is_diff, is_placeholder in runs1:
                 if is_placeholder:
-                    # 缺失占位符：绿色粗体
+                    # Missing placeholder: green bold
                     add_colored_run(p1, text_seg, color_placeholder, bold=True)
                 elif is_diff:
                     add_colored_run(p1, text_seg, color_left, bold=True)
@@ -885,15 +884,15 @@ def generate_docx(rows, name1, name2, output_path):
                     set_run_font(run)
         elif tag == 'delete':
             add_colored_run(p1, ltext, color_left, bold=True)
-            # 右侧整行空白，不添加任何标识
+            # Right side empty for whole row, no marker added
         elif tag == 'insert':
-            # 左侧整行空白，不添加任何标识
+            # Left side empty for whole row, no marker added
             pass
         else:
             run = p1.add_run(ltext)
             set_run_font(run)
 
-        # 标记
+        # Marker
         cell = row_cells[2]
         set_cell_width(cell, col_widths[2])
         p_mark = cell.paragraphs[0]
@@ -906,7 +905,7 @@ def generate_docx(rows, name1, name2, output_path):
         elif tag == 'insert':
             add_colored_run(p_mark, '+', color_right, bold=True)
 
-        # 内容2
+        # Content 2
         cell = row_cells[4]
         set_cell_width(cell, col_widths[4])
         p2 = cell.paragraphs[0]
@@ -915,7 +914,7 @@ def generate_docx(rows, name1, name2, output_path):
             _, runs2 = word_diff_runs(ltext, rtext)
             for text_seg, is_diff, is_placeholder in runs2:
                 if is_placeholder:
-                    # 缺失占位符：绿色粗体
+                    # Missing placeholder: green bold
                     add_colored_run(p2, text_seg, color_placeholder, bold=True)
                 elif is_diff:
                     add_colored_run(p2, text_seg, color_right, bold=True)
@@ -925,7 +924,7 @@ def generate_docx(rows, name1, name2, output_path):
         elif tag == 'insert':
             add_colored_run(p2, rtext, color_right, bold=True)
         elif tag == 'delete':
-            # 删除行：右侧整行空白，不添加任何标识
+            # Delete row: right side empty, no marker added
             pass
         else:
             run = p2.add_run(rtext)
@@ -937,7 +936,7 @@ def generate_docx(rows, name1, name2, output_path):
 def main():
     import argparse
     
-    # 程序开头说明
+    # Program header
     print("=" * 70)
     print(f"compare_docs.py - Document Difference Comparison Tool {VERSION}")
     print("Supports PDF/DOCX/PPTX/TXT comparison, generates Word diff report")
@@ -949,13 +948,13 @@ def main():
         description='Document Comparison Tool - Compare two documents and generate Word diff report',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
-支持格式:
-  PDF   - 支持跨页paragraphs合并、page number过滤、视觉line number提取
-  DOCX  - 支持paragraphs级对比、估算page number
-  PPTX  - 幻灯片文本对比
-  TXT   - 纯文本对比
+Supported formats:
+  PDF   - Supports cross-page paragraph merging, page number filtering, visual line number extraction
+  DOCX  - Supports paragraph-level comparison, estimated page number
+  PPTX  - Slide text comparison
+  TXT   - Plain text comparison
 
-示例:
+Examples:
   python compare_docs.py paper1.pdf paper2.pdf
   python compare_docs.py report1.docx report2.docx --calibrate
   python compare_docs.py doc1.txt doc2.txt --no-merge
@@ -972,8 +971,8 @@ def main():
     file1 = args.file1
     file2 = args.file2
     use_precise = True
-    merge_lines = not args.no_merge  # 默认合并，--no-merge 时关闭
-    merge_across_pages = not args.no_page_merge  # 默认跨页合并，--no-page-merge 时关闭
+    merge_lines = not args.no_merge  # Default merge, disable with --no-merge
+    merge_across_pages = not args.no_page_merge  # Default cross-page merge, disable with --no-page-merge
     
     if not os.path.exists(file1):
         print(f"Error: File does not exist: {file1}")
@@ -996,16 +995,16 @@ def main():
         location_info1 = None
     print(f"  Total {len(lines1)} paragraphs")
     
-    # 校准模式：显示前几个paragraphs的位置信息
+    # Calibration mode: display location info for first few paragraphs
     if args.calibrate and location_info1:
-        print("\n校准信息（前5个paragraphs）:")
+        print("\nCalibration info (first 5 paragraphs):")
         for i in range(min(5, len(lines1))):
             loc = location_info1[i]
             para_num, page_num, line_num = loc[0], loc[1], loc[2] if len(loc) > 2 else None
             if line_num:
-                print(f"  paragraphs {i+1}: Page{page_num}-L{line_num}")
+                print(f"  paragraph {i+1}: Page{page_num}-L{line_num}")
             else:
-                print(f"  paragraphs {i+1}: Page{page_num}-{para_num}")
+                print(f"  paragraph {i+1}: Page{page_num}-{para_num}")
         print()
 
     print(f"Reading {file2} ...")
