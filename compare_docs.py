@@ -20,6 +20,9 @@ from docx.enum.section import WD_ORIENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
+# 版本号
+VERSION = "Build20260403.1"
+
 # 读取器注册表
 READERS = {}
 
@@ -783,7 +786,6 @@ def generate_docx(rows, name1, name2, output_path):
         run.font.color.rgb = RGBColor(128, 128, 128)
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         doc.save(output_path)
-        print(f"对比报告已保存至: {output_path}")
         return
 
     # 表格：5列（总宽度 8.8 英寸，适应 1 英寸边距的横向页面）
@@ -924,7 +926,6 @@ def generate_docx(rows, name1, name2, output_path):
             set_run_font(run)
 
     doc.save(output_path)
-    print(f"对比报告已保存至: {output_path}")
 
 
 def main():
@@ -932,7 +933,7 @@ def main():
     
     # 程序开头说明
     print("=" * 70)
-    print("compare_docs.py - 文档对比工具")
+    print(f"compare_docs.py - 文档差异对比工具 {VERSION}")
     print("支持PDF/DOCX/PPTX/TXT格式对比，生成Word格式的差异报告")
     print("=" * 70)
     print()
@@ -1017,6 +1018,7 @@ def main():
 
     diff_count = len(rows)
     print(f"差异行数: {diff_count}")
+    print(f"对比报告已保存至: {output_path}")
 
 
 if __name__ == '__main__':
