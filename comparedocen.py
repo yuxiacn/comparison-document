@@ -276,15 +276,19 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 # First paragraph starts
                 is_new_para = True
             else:
-                # New paragraph requires BOTH conditions:
-                # 1. Previous line ends with sentence terminator (hard return)
-                # 2. Current line has indent (paragraph start)
+                # New paragraph starts when:
+                # Previous paragraph ended with sentence terminator (.!?)
+                # AND current line has indent (any amount)
                 prev_line = current_paragraph[-1]
                 stripped = line.lstrip()
                 indent = len(line) - len(stripped)
                 
-                # Condition 1: previous ends with .!? AND Condition 2: has indent (>= 4 spaces)
-                if (prev_line and prev_line[-1] in '.!?' and indent >= 4):
+                # Check if previous paragraph ended (last line ends with .!?)
+                prev_ended = prev_line and prev_line[-1] in '.!?'
+                # Check if current line has indent (new paragraph start)
+                has_indent = indent > 0
+                
+                if prev_ended and has_indent:
                     is_new_para = True
             
             if is_new_para and current_paragraph:
@@ -338,8 +342,10 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                         prev_line = current_paragraph[-1]
                         stripped = line.lstrip()
                         indent = len(line) - len(stripped)
-                        # Condition 1: previous ends with .!? AND Condition 2: has indent
-                        if (prev_line and prev_line[-1] in '.!?' and indent >= 4):
+                        # Previous paragraph ended AND current has indent
+                        prev_ended = prev_line and prev_line[-1] in '.!?'
+                        has_indent = indent > 0
+                        if prev_ended and has_indent:
                             is_new_para = True
                     
                     if is_new_para and current_paragraph:
