@@ -13,6 +13,13 @@ A Python tool for comparing documents in PDF, DOCX, PPTX, and TXT formats, gener
 - **Sentence-level missing detection**: Show `[Missing Sentence]` (green)
 - **Auto-merge consecutive placeholders**
 
+## Platform Support
+
+This program is compatible with the following operating systems:
+- **macOS**
+- **Linux**
+- **Windows**
+
 ## Version Format
 
 Format: `V{major}.{minor} Build{YYYYMMDD}.{revision}`
