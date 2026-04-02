@@ -2,7 +2,7 @@
 
 A Python tool for comparing documents in PDF, DOCX, PPTX, and TXT formats, generating Word format difference reports.
 
-**Current Version: V2.0 Build20260403.1**
+**Current Version: V2.0 Build20260403.3**
 
 ## Features
 
