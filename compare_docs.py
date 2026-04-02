@@ -31,6 +31,27 @@ def register_reader(ext):
     return decorator
 
 
+def estimate_visual_lines(text, chars_per_line=80):
+    """
+    估算文本的视觉行数（模拟Word自动换行）
+    考虑中英文混排，中文字符占约2个英文字符宽度
+    """
+    if not text.strip():
+        return 1  # 空行也算一行
+    
+    # 计算等效字符数（中文字符算2个宽度）
+    effective_chars = 0
+    for char in text:
+        if '\u4e00' <= char <= '\u9fff':  # 中文字符
+            effective_chars += 2
+        else:
+            effective_chars += 1
+    
+    # 计算需要的行数
+    lines_needed = max(1, (effective_chars + chars_per_line - 1) // chars_per_line)
+    return lines_needed
+
+
 @register_reader('.txt')
 def read_txt(path):
     with open(path, 'r', encoding='utf-8') as f:
@@ -41,11 +62,21 @@ def read_txt(path):
 
 @register_reader('.docx')
 def read_docx(path):
+    """读取docx，返回内容列表和视觉行号映射"""
     doc = Document(path)
     lines = []
+    visual_line_map = []  # 记录每个段落对应的起始视觉行号
+    current_visual_line = 1
+    
     for para in doc.paragraphs:
-        lines.append(para.text.rstrip())
-    return lines
+        text = para.text.rstrip()
+        lines.append(text)
+        visual_line_map.append(current_visual_line)
+        # 更新视觉行号（考虑自动换行）
+        visual_lines = estimate_visual_lines(text, chars_per_line=80)
+        current_visual_line += visual_lines
+    
+    return lines, visual_line_map
 
 
 @register_reader('.pdf')
@@ -55,12 +86,22 @@ def read_pdf(path):
     except ImportError:
         raise ImportError("请安装 pdfplumber 以支持 PDF 读取: pip install pdfplumber")
     lines = []
+    visual_line_map = []
+    current_visual_line = 1
+    
     with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
             if text:
-                lines.extend(text.splitlines())
-    return [ln.rstrip() for ln in lines]
+                page_lines = text.splitlines()
+                for line in page_lines:
+                    line = line.rstrip()
+                    lines.append(line)
+                    visual_line_map.append(current_visual_line)
+                    visual_lines = estimate_visual_lines(line, chars_per_line=80)
+                    current_visual_line += visual_lines
+    
+    return lines, visual_line_map
 
 
 @register_reader('.pptx')
@@ -68,12 +109,20 @@ def read_pptx(path):
     from pptx import Presentation
     prs = Presentation(path)
     lines = []
+    visual_line_map = []
+    current_visual_line = 1
+    
     for slide in prs.slides:
         for shape in slide.shapes:
             if hasattr(shape, "text"):
                 for ln in shape.text.splitlines():
-                    lines.append(ln.rstrip())
-    return lines
+                    line = ln.rstrip()
+                    lines.append(line)
+                    visual_line_map.append(current_visual_line)
+                    visual_lines = estimate_visual_lines(line, chars_per_line=80)
+                    current_visual_line += visual_lines
+    
+    return lines, visual_line_map
 
 
 def read_document(path):
@@ -256,15 +305,21 @@ def word_diff_runs(text1, text2):
     return left_runs, right_runs
 
 
-def build_diff_report(lines1, lines2):
+def build_diff_report(lines1, lines2, visual_map1=None, visual_map2=None):
     """
     使用 difflib.SequenceMatcher 分析差异，返回仅包含差异行的数据。
     每个元素为 (tag, left_line_no, left_text, right_line_no, right_text)
     tag 取值: replace, delete, insert
-    行号从 1 开始计数。
+    行号使用 Word 视觉行号（考虑自动换行）。
     """
     sm = difflib.SequenceMatcher(None, lines1, lines2, autojunk=False)
     opcodes = sm.get_opcodes()
+    
+    # 如果没有提供视觉行号映射，使用默认的段落索引+1
+    if visual_map1 is None:
+        visual_map1 = list(range(1, len(lines1) + 1))
+    if visual_map2 is None:
+        visual_map2 = list(range(1, len(lines2) + 1))
 
     rows = []
     for tag, i1, i2, j1, j2 in opcodes:
@@ -275,8 +330,8 @@ def build_diff_report(lines1, lines2):
             for k in range(max_len):
                 left_exists = i1 + k < i2
                 right_exists = j1 + k < j2
-                lnum = i1 + k + 1 if left_exists else None
-                rnum = j1 + k + 1 if right_exists else None
+                lnum = visual_map1[i1 + k] if left_exists else None
+                rnum = visual_map2[j1 + k] if right_exists else None
                 ltext = lines1[i1 + k] if left_exists else ""
                 rtext = lines2[j1 + k] if right_exists else ""
                 if left_exists and right_exists:
@@ -287,12 +342,12 @@ def build_diff_report(lines1, lines2):
                     rows.append(('insert', None, "", rnum, rtext))
         elif tag == 'delete':
             for k in range(i2 - i1):
-                lnum = i1 + k + 1
+                lnum = visual_map1[i1 + k]
                 ltext = lines1[i1 + k]
                 rows.append(('delete', lnum, ltext, None, ""))
         elif tag == 'insert':
             for k in range(j2 - j1):
-                rnum = j1 + k + 1
+                rnum = visual_map2[j1 + k]
                 rtext = lines2[j1 + k]
                 rows.append(('insert', None, "", rnum, rtext))
 
@@ -567,15 +622,25 @@ def main():
     output_path = os.path.join(os.getcwd(), output_name)
 
     print(f"正在读取 {file1} ...")
-    lines1 = read_document(file1)
-    print(f"  共 {len(lines1)} 行")
+    result1 = read_document(file1)
+    if isinstance(result1, tuple):
+        lines1, visual_map1 = result1
+    else:
+        lines1 = result1
+        visual_map1 = None
+    print(f"  共 {len(lines1)} 段落")
 
     print(f"正在读取 {file2} ...")
-    lines2 = read_document(file2)
-    print(f"  共 {len(lines2)} 行")
+    result2 = read_document(file2)
+    if isinstance(result2, tuple):
+        lines2, visual_map2 = result2
+    else:
+        lines2 = result2
+        visual_map2 = None
+    print(f"  共 {len(lines2)} 段落")
 
     print("正在分析差异 ...")
-    rows = build_diff_report(lines1, lines2)
+    rows = build_diff_report(lines1, lines2, visual_map1, visual_map2)
 
     print("正在生成报告 ...")
     generate_docx(rows, name1, name2, output_path)
