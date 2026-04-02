@@ -189,7 +189,7 @@ def read_docx(path, use_precise=True):
 
 
 @register_reader('.pdf')
-def read_pdf(path, merge_lines=True, merge_across_pages=True):
+def read_pdf(path, merge_lines=True, merge_across_pages=True, debug=False):
     """
     Read PDF file, return content list and location info (paragraph number, page number, line number)
     
@@ -209,9 +209,9 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
     
     # Pattern to identify page numbers: standalone numeric lines (1-4 digits)
     page_number_pattern = re.compile(r'^\s*\d{1,4}\s*$')
-    # Pattern to identify visual line numbers: "114 " or "115     " etc.
-    # Captures the number and the spaces after it separately
-    line_number_pattern = re.compile(r'^(\s*\d+)\s(.*)$')
+    # Pattern to identify visual line numbers: "114 text" or "115     text" etc.
+    # Captures: group 1 = line number with leading spaces, group 2 = separator (space/tab), group 3 = remaining spaces, group 4 = content
+    line_number_pattern = re.compile(r'^([ ]*\d+)([ \t])([ ]*)(.*)$')
     
     # Step 1 & 2: Extract lines, remove line numbers, keep indent info
     all_lines_info = []  # [(content_with_indent, line_num, has_indent), ...]
@@ -238,16 +238,28 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 if match:
                     try:
                         line_num = int(match.group(1).strip())
-                        # Content includes any spaces after line number
-                        content = match.group(2)
-                        # Check if has indentation (starts with spaces)
-                        has_indent = len(content) > 0 and content[0] == ' '
-                        all_lines_info.append((content, line_num, has_indent, page_num))
+                        # group(2) = separator (space/tab)
+                        # group(3) = spaces after separator (indent)
+                        # group(4) = actual content
+                        spaces_after = match.group(3)
+                        content = match.group(4)
+                        # Total indent = spaces after line number separator
+                        indent_chars = len(spaces_after)
+                        has_indent = indent_chars >= 2  # At least 2 spaces for indent
+                        # Reconstruct content with proper spacing for detection
+                        full_content = spaces_after + content
+                        if debug:
+                            print(f"DEBUG: Line {line_num}, spaces_after='{spaces_after}' ({indent_chars} chars), has_indent={has_indent}")
+                        all_lines_info.append((full_content, line_num, has_indent, page_num))
                     except ValueError:
                         # No line number, treat as regular line
+                        if debug:
+                            print(f"DEBUG: No line number in: {repr(line[:50])}")
                         all_lines_info.append((line, None, False, page_num))
                 else:
                     # No line number, treat as regular line
+                    if debug:
+                        print(f"DEBUG: No line number match: {repr(line[:50])}")
                     all_lines_info.append((line, None, False, page_num))
     
     # Step 3 & 4: Join lines and insert newlines before indented lines
@@ -259,6 +271,9 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
     location_info = []
     paragraph_counter = 0
     
+    if debug:
+        print(f"DEBUG: Total lines to process: {len(all_lines_info)}")
+    
     for i, (content, line_num, has_indent, page_num) in enumerate(all_lines_info):
         # If this line has indent and we already have content, start new paragraph
         if has_indent and current_para_parts:
@@ -267,9 +282,11 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
             para_text = ' '.join(current_para_parts)
             paragraph_texts.append(para_text)
             location_info.append((paragraph_counter, current_para_page, current_para_start_line))
+            if debug:
+                print(f"DEBUG: Saved paragraph {paragraph_counter} (lines {current_para_start_line}-{line_num-1})")
             
             # Start new paragraph
-            current_para_parts = [content.lstrip()]  # Remove leading spaces for content
+            current_para_parts = [content.lstrip(' \t')]  # Remove leading spaces/tabs for content
             current_para_start_line = line_num
             current_para_page = page_num
         else:
@@ -277,7 +294,7 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
             if not current_para_parts:
                 current_para_start_line = line_num
                 current_para_page = page_num
-            current_para_parts.append(content.lstrip())  # Remove leading spaces for content
+            current_para_parts.append(content.lstrip(' \t'))  # Remove leading spaces/tabs for content
     
     # Save last paragraph
     if current_para_parts:
@@ -285,6 +302,9 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
         para_text = ' '.join(current_para_parts)
         paragraph_texts.append(para_text)
         location_info.append((paragraph_counter, current_para_page, current_para_start_line))
+        if debug:
+            print(f"DEBUG: Saved paragraph {paragraph_counter} (started at line {current_para_start_line})")
+            print(f"DEBUG: Total paragraphs: {len(paragraph_texts)}")
     
     return paragraph_texts, location_info
 
@@ -311,12 +331,13 @@ def read_pptx(path):
     return lines, location_info
 
 
-def read_document(path, use_precise=True, merge_lines=True, merge_across_pages=True):
+def read_document(path, use_precise=True, merge_lines=True, merge_across_pages=True, debug=False):
     """
     Read document content
     use_precise: for DOCX, whether to use precise visual line number calculation
     merge_lines: for PDF/TXT, whether to merge consecutive lines
     merge_across_pages: for PDF, whether to merge paragraphs across pages
+    debug: for PDF, enable debug output
     """
     ext = Path(path).suffix.lower()
     if ext not in READERS:
@@ -327,7 +348,7 @@ def read_document(path, use_precise=True, merge_lines=True, merge_across_pages=T
     if ext == '.docx':
         return reader(path, use_precise=use_precise)
     elif ext == '.pdf':
-        return reader(path, merge_lines=merge_lines, merge_across_pages=merge_across_pages)
+        return reader(path, merge_lines=merge_lines, merge_across_pages=merge_across_pages, debug=debug)
     elif ext == '.txt':
         return reader(path, merge_lines=merge_lines)
     else:
@@ -874,6 +895,7 @@ Examples:
     parser.add_argument('--calibrate', action='store_true', help='Calibration mode: output paragraph location info for debugging')
     parser.add_argument('--no-merge', action='store_true', help='PDF/TXT files: do not merge consecutive lines (compare by original lines)')
     parser.add_argument('--no-page-merge', action='store_true', help='PDF: do not merge paragraphs across pages (process each page independently)')
+    parser.add_argument('--debug', action='store_true', help='Debug mode: show detailed processing info for PDF parsing')
     
     args = parser.parse_args()
     
@@ -882,6 +904,7 @@ Examples:
     use_precise = True
     merge_lines = not args.no_merge  # Default merge, disable with --no-merge
     merge_across_pages = not args.no_page_merge  # Default cross-page merge, disable with --no-page-merge
+    debug = args.debug
     
     if not os.path.exists(file1):
         print(f"Error: File does not exist: {file1}")
@@ -896,7 +919,7 @@ Examples:
     output_path = os.path.join(os.getcwd(), output_name)
 
     print(f"Reading {file1} ...")
-    result1 = read_document(file1, use_precise=use_precise, merge_lines=merge_lines, merge_across_pages=merge_across_pages)
+    result1 = read_document(file1, use_precise=use_precise, merge_lines=merge_lines, merge_across_pages=merge_across_pages, debug=debug)
     if isinstance(result1, tuple):
         lines1, location_info1 = result1
     else:
@@ -917,7 +940,7 @@ Examples:
         print()
 
     print(f"Reading {file2} ...")
-    result2 = read_document(file2, use_precise=use_precise, merge_lines=merge_lines, merge_across_pages=merge_across_pages)
+    result2 = read_document(file2, use_precise=use_precise, merge_lines=merge_lines, merge_across_pages=merge_across_pages, debug=debug)
     if isinstance(result2, tuple):
         lines2, location_info2 = result2
     else:
