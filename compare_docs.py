@@ -53,12 +53,33 @@ def estimate_visual_lines(text, chars_per_line=80):
 
 
 @register_reader('.txt')
-def read_txt(path):
+def read_txt(path, merge_lines=False):
     """读取TXT，返回内容列表和位置信息(段落号, 页码=1)"""
     with open(path, 'r', encoding='utf-8') as f:
         text = f.read()
-    lines = text.splitlines()
-    lines = [ln.rstrip() for ln in lines if ln.strip()]  # 过滤空行
+    
+    if merge_lines:
+        # 合并连续非空行（处理自动换行的情况）
+        lines = text.splitlines()
+        paragraphs = []
+        current_para = []
+        
+        for line in lines:
+            stripped = line.rstrip()
+            if not stripped:
+                if current_para:
+                    paragraphs.append(' '.join(current_para))
+                    current_para = []
+            else:
+                current_para.append(stripped)
+        
+        if current_para:
+            paragraphs.append(' '.join(current_para))
+        
+        lines = paragraphs
+    else:
+        lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
+    
     # TXT没有真实页码，所有段落标记为第1页
     location_info = [(i + 1, 1) for i in range(len(lines))]
     return lines, location_info
@@ -158,29 +179,82 @@ def read_docx(path, use_precise=True):
 
 
 @register_reader('.pdf')
-def read_pdf(path):
-    """读取PDF，返回内容列表和位置信息(段落号, 页码)"""
+def read_pdf(path, merge_lines=True):
+    """
+    读取PDF，返回内容列表和位置信息(段落号, 页码)
+    
+    参数:
+        merge_lines: 是否将连续的非空行合并为一个段落（推荐True，避免PDF物理换行导致的碎片）
+    """
     try:
         import pdfplumber
     except ImportError:
         raise ImportError("请安装 pdfplumber 以支持 PDF 读取: pip install pdfplumber")
-    lines = []
+    
+    paragraphs = []
     location_info = []
     paragraph_counter = 0
     
     with pdfplumber.open(path) as pdf:
         for page_num, page in enumerate(pdf.pages, 1):
             text = page.extract_text()
-            if text:
+            if not text:
+                continue
+                
+            if merge_lines:
+                # 智能段落合并：连续的非空行合并为一个段落
+                # 以空行或缩进变化作为段落分隔
+                page_lines = text.splitlines()
+                current_paragraph = []
+                
+                for i, line in enumerate(page_lines):
+                    line = line.rstrip()
+                    if not line:
+                        # 空行表示段落结束
+                        if current_paragraph:
+                            paragraph_counter += 1
+                            paragraphs.append(' '.join(current_paragraph))
+                            location_info.append((paragraph_counter, page_num))
+                            current_paragraph = []
+                    else:
+                        # 检查是否是新段落（通过缩进或短行判断）
+                        is_new_para = False
+                        if current_paragraph:
+                            # 如果当前行缩进明显，可能是新段落
+                            stripped = line.lstrip()
+                            indent = len(line) - len(stripped)
+                            if indent >= 4:  # 4个空格以上缩进
+                                is_new_para = True
+                            # 如果上一行以句号等结束，且当前行不是小写开头，可能是新段落
+                            prev_line = current_paragraph[-1]
+                            if prev_line and prev_line[-1] in '.。!?':
+                                if stripped and not stripped[0].islower():
+                                    is_new_para = True
+                        
+                        if is_new_para and current_paragraph:
+                            paragraph_counter += 1
+                            paragraphs.append(' '.join(current_paragraph))
+                            location_info.append((paragraph_counter, page_num))
+                            current_paragraph = [line]
+                        else:
+                            current_paragraph.append(line)
+                
+                # 处理最后一个段落
+                if current_paragraph:
+                    paragraph_counter += 1
+                    paragraphs.append(' '.join(current_paragraph))
+                    location_info.append((paragraph_counter, page_num))
+            else:
+                # 原始模式：每行单独处理
                 page_lines = text.splitlines()
                 for line in page_lines:
                     line = line.rstrip()
-                    if line:  # 只处理非空行
+                    if line:
                         paragraph_counter += 1
-                        lines.append(line)
+                        paragraphs.append(line)
                         location_info.append((paragraph_counter, page_num))
     
-    return lines, location_info
+    return paragraphs, location_info
 
 
 @register_reader('.pptx')
@@ -205,19 +279,22 @@ def read_pptx(path):
     return lines, location_info
 
 
-def read_document(path, use_precise=True):
+def read_document(path, use_precise=True, merge_lines=True):
     """
     读取文档内容
     use_precise: 对docx文件是否使用高精度视觉行号计算
+    merge_lines: 对pdf/txt是否合并连续行（将物理换行合并为逻辑段落）
     """
     ext = Path(path).suffix.lower()
     if ext not in READERS:
         raise ValueError(f"不支持的文件格式: {ext}。当前支持: {', '.join(READERS.keys())}")
     
     reader = READERS[ext]
-    # 对docx特殊处理，传递use_precise参数
+    # 对不同格式传递相应参数
     if ext == '.docx':
         return reader(path, use_precise=use_precise)
+    elif ext in ('.pdf', '.txt'):
+        return reader(path, merge_lines=merge_lines)
     else:
         return reader(path)
 
@@ -727,12 +804,14 @@ def main():
     parser.add_argument('file1', help='第一个文档路径')
     parser.add_argument('file2', help='第二个文档路径')
     parser.add_argument('--calibrate', action='store_true', help='校准模式：输出段落位置信息用于调试')
+    parser.add_argument('--no-merge', action='store_true', help='PDF/TXT文件不合并连续行（按原始行对比）')
     
     args = parser.parse_args()
     
     file1 = args.file1
     file2 = args.file2
     use_precise = True
+    merge_lines = not args.no_merge  # 默认合并，--no-merge 时关闭
     
     if not os.path.exists(file1):
         print(f"错误: 文件不存在: {file1}")
@@ -747,7 +826,7 @@ def main():
     output_path = os.path.join(os.getcwd(), output_name)
 
     print(f"正在读取 {file1} ...")
-    result1 = read_document(file1, use_precise=use_precise)
+    result1 = read_document(file1, use_precise=use_precise, merge_lines=merge_lines)
     if isinstance(result1, tuple):
         lines1, location_info1 = result1
     else:
@@ -764,7 +843,7 @@ def main():
         print()
 
     print(f"正在读取 {file2} ...")
-    result2 = read_document(file2, use_precise=use_precise)
+    result2 = read_document(file2, use_precise=use_precise, merge_lines=merge_lines)
     if isinstance(result2, tuple):
         lines2, location_info2 = result2
     else:
