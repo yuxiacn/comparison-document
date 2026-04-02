@@ -240,25 +240,32 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 # Extract visual line number at line start
                 visual_line_num = None
                 match = line_number_pattern.match(line)
+                # Keep original line for indent detection, process content separately
+                original_line = line
                 if match:
                     try:
                         visual_line_num = int(match.group(1).strip())
-                        line = line[match.end():].lstrip()
+                        # Content without line number (for paragraph text)
+                        line_content = line[match.end():].lstrip()
                     except ValueError:
-                        pass
+                        line_content = line.lstrip()
+                else:
+                    line_content = line.lstrip()
                 
-                if line:
-                    processed_lines.append((line, visual_line_num))
+                if line_content:
+                    # Store: (original line with indent, content without indent, visual line num)
+                    processed_lines.append((original_line, line_content, visual_line_num))
             
             all_pages_lines.append((page_num, processed_lines))
     
     # Cross-page paragraph merging
     if merge_across_pages and merge_lines:
         # Merge all page lines, then process paragraphs uniformly
+        # Each element: (original_line, line_content, visual_line_num, page_num)
         all_lines = []
         for page_num, lines in all_pages_lines:
-            for line, line_num in lines:
-                all_lines.append((line, line_num, page_num))
+            for original_line, line_content, line_num in lines:
+                all_lines.append((original_line, line_content, line_num, page_num))
         
         # Uniform paragraph merging
         current_paragraph = []
@@ -267,9 +274,9 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
         
         i = 0
         while i < len(all_lines):
-            line, visual_line_num, page_num = all_lines[i]
+            original_line, line_content, visual_line_num, page_num = all_lines[i]
             
-            # Check if new paragraph starts
+            # Check if new paragraph starts (use original_line for indent detection)
             is_new_para = False
             
             if not current_paragraph:
@@ -277,9 +284,9 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 is_new_para = True
             else:
                 # Check if current line belongs to new paragraph
-                # ONLY condition: obvious indent (3+ spaces)
-                stripped = line.lstrip()
-                indent = len(line) - len(stripped)
+                # ONLY condition: obvious indent (4+ spaces)
+                stripped = original_line.lstrip()
+                indent = len(original_line) - len(stripped)
                 
                 # New paragraph only if indent >= 4 spaces
                 if indent >= 4:
@@ -295,16 +302,16 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 paragraphs.append(para_text)
                 location_info.append((paragraph_counter, current_page or page_num, current_line_num))
                 
-                # Start new paragraph
-                current_paragraph = [line]
+                # Start new paragraph (use line_content, not original_line)
+                current_paragraph = [line_content]
                 current_line_num = visual_line_num
                 current_page = page_num
             else:
-                # Continue current paragraph
+                # Continue current paragraph (use line_content)
                 if not current_paragraph:
                     current_line_num = visual_line_num
                     current_page = page_num
-                current_paragraph.append(line)
+                current_paragraph.append(line_content)
             
             i += 1
         
@@ -322,8 +329,9 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 current_paragraph = []
                 current_line_num = None
                 
-                for line, visual_line_num in lines:
-                    if not line:
+                # Each element: (original_line, line_content, visual_line_num)
+                for original_line, line_content, visual_line_num in lines:
+                    if not line_content:
                         if current_paragraph:
                             paragraph_counter += 1
                             para_text = ' '.join(current_paragraph)
@@ -333,11 +341,11 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                             current_line_num = None
                         continue
                     
-                    # Check new paragraph
+                    # Check new paragraph (use original_line for indent detection)
                     is_new_para = False
                     if current_paragraph:
-                        stripped = line.lstrip()
-                        indent = len(line) - len(stripped)
+                        stripped = original_line.lstrip()
+                        indent = len(original_line) - len(stripped)
                         
                         # New paragraph only if indent >= 4 spaces
                         if indent >= 4:
@@ -350,12 +358,12 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                         para_text = ' '.join(current_paragraph)
                         paragraphs.append(para_text)
                         location_info.append((paragraph_counter, page_num, current_line_num))
-                        current_paragraph = [line]
+                        current_paragraph = [line_content]  # Use content without indent
                         current_line_num = visual_line_num
                     else:
                         if not current_paragraph:
                             current_line_num = visual_line_num
-                        current_paragraph.append(line)
+                        current_paragraph.append(line_content)  # Use content without indent
                 
                 # Save last paragraph
                 if current_paragraph:
@@ -365,10 +373,11 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                     location_info.append((paragraph_counter, page_num, current_line_num))
             else:
                 # No merging, each line independent
-                for line, visual_line_num in lines:
-                    if line:
+                # Each element: (original_line, line_content, visual_line_num)
+                for original_line, line_content, visual_line_num in lines:
+                    if line_content:
                         paragraph_counter += 1
-                        paragraphs.append(line)
+                        paragraphs.append(line_content)
                         location_info.append((paragraph_counter, page_num, visual_line_num))
     
     return paragraphs, location_info
