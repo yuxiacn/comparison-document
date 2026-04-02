@@ -25,3 +25,6 @@ build_windows.py
 requirements-android.txt
 setup.py
 setup_alias.py
+comparedocscn.py
+translate_to_english.py
+bump_version.py

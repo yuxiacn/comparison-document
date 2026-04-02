@@ -1,50 +1,103 @@
-# 文档对比工具
+# Document Comparison Tool
 
-支持对比 PDF、DOCX、PPTX、TXT 格式文档，生成 Word 格式的差异报告。
+A Python tool for comparing documents in PDF, DOCX, PPTX, and TXT formats, generating Word format difference reports.
 
-**当前版本：V2.0 Build20260403.1**
+**Current Version: V2.0 Build20260403.1**
 
-## 功能特性
+## Features
 
-- 支持多种格式：**PDF**、DOCX、PPTX、TXT
-- PDF 智能处理：跨页段落合并、页码过滤、视觉行号提取
-- 横向页面布局，仅显示差异行
-- 单词级差异高亮（蓝色/红色）
-- 句子级缺失检测，显示 `[此处缺失句子]`（绿色）
-- 自动合并连续的缺失占位符
+- **Multi-format support**: PDF, DOCX, PPTX, TXT
+- **PDF intelligent processing**: Cross-page paragraph merging, page number filtering, visual line number extraction
+- **Landscape layout**: Display only difference rows
+- **Word-level highlighting**: Blue for deletions, Red for additions
+- **Sentence-level missing detection**: Show `[Missing Sentence]` (green)
+- **Auto-merge consecutive placeholders**
 
-## 版本号规则
+## Version Format
 
-格式：`V主版本.次版本 Build年月日.修订号`
+Format: `V{major}.{minor} Build{YYYYMMDD}.{revision}`
 
-- **主版本**: 重大功能更新时递增 (如 V2.0 → V3.0)
-- **次版本**: 功能修改/优化时递增 (如 V2.0 → V2.1)
-- **修订号**: 日常修改/bug修复时递增 (如 V2.0 Build20260403.1 → V2.0 Build20260403.2)
+- **Major**: Increment on major updates (e.g., V2.0 → V3.0)
+- **Minor**: Increment on feature changes (e.g., V2.0 → V2.1)
+- **Revision**: Increment on bug fixes (e.g., V2.0 Build20260403.1 → V2.0 Build20260403.2)
 
-### 自动更新版本号
+### Auto Version Update
 
 ```bash
-# 仅更新日期和修订号
+# Update date and revision only
 python bump_version.py
 
-# 更新次版本号（如 V2.0 → V2.1）
+# Update minor version (e.g., V2.0 → V2.1)
 python bump_version.py minor
 ```
 
-## 使用方法
+## Installation
 
-```bash
-python compare_docs.py <文件1> <文件2>
-```
-
-输出：`Comparison_文件名1_VS_文件名2.docx`
-
-## 依赖安装
+### Required Libraries
 
 ```bash
 pip install python-docx pdfplumber python-pptx
 ```
 
-## 作者
+**Required Python Libraries:**
+- `python-docx` - For reading and writing Word documents
+- `pdfplumber` - For extracting text from PDF files
+- `python-pptx` - For reading PowerPoint presentations
+- `difflib` - Built-in library for sequence comparison
+- `re` - Built-in regular expression library
+- `datetime` - Built-in date/time library
+- `pathlib` - Built-in path manipulation library
+- `argparse` - Built-in command-line argument parsing
+- `sys`, `os` - Built-in system libraries
 
-yuxiacn-dev
+## Usage
+
+```bash
+python comparedocen.py <file1> <file2>
+```
+
+Output: `Comparison_File1_VS_File2.docx`
+
+### Examples
+
+```bash
+# Compare PDF files
+python comparedocen.py paper1.pdf paper2.pdf
+
+# Compare Word documents
+python comparedocen.py report1.docx report2.docx
+
+# Calibration mode (debug paragraph locations)
+python comparedocen.py doc1.pdf doc2.pdf --calibrate
+
+# Do not merge consecutive lines (PDF/TXT)
+python comparedocen.py doc1.txt doc2.txt --no-merge
+
+# Do not merge paragraphs across pages (PDF)
+python comparedocen.py doc1.pdf doc2.pdf --no-page-merge
+```
+
+## Comparison Report Format
+
+The generated Word report includes:
+- **Document Comparison Report** (title)
+- **Comparison files**: File1 VS File2
+- **Generation time**
+- **Legend**: Explanation of symbols
+- **Difference table**:
+  - Location (P{page}-L{line} or P{page}-{paragraph})
+  - Content from File 1
+  - Mark (=, ≠, -, +)
+  - Location
+  - Content from File 2
+
+## Contact
+
+**For Chinese version, please contact the author via email:**
+
+**Author**: Yu Xia  
+**Email**: yuxiacn@qq.com
+
+## License
+
+This tool is provided as-is for document comparison purposes.
