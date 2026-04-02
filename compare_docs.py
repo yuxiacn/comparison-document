@@ -60,119 +60,97 @@ def read_txt(path):
     return [ln.rstrip() for ln in lines]
 
 
-def get_precise_visual_line_numbers(path):
+def estimate_paragraph_pages(doc):
     """
-    尝试使用外部工具获取精确的视觉行号
-    优先级: LibreOffice > 高精度估算
-    返回: [(paragraph_index, visual_line_number), ...] 或 None
-    """
-    # 尝试导入 LibreOffice 方案
-    try:
-        from word_line_numbers_libreoffice import get_line_numbers_with_libreoffice
-        result = get_line_numbers_with_libreoffice(path)
-        if result:
-            # 将结果转换为段落索引到视觉行号的映射
-            visual_map = {}
-            for item in result:
-                # 这里需要关联段落，LibreOffice 输出的是行，不是段落
-                # 简化处理：使用行号作为近似
-                pass
-            return None  # 暂时不使用，因为需要更复杂的段落关联
-    except Exception:
-        pass
-    
-    return None
-
-
-def calculate_precise_visual_lines(doc):
-    """
-    高精度计算视觉行号
-    考虑页面设置、字体、缩进等因素
+    估算每个段落的页码
+    返回: [page_number, ...] 与段落一一对应
     """
     # 获取页面设置
     section = doc.sections[0] if doc.sections else None
     
     if section:
-        # 页面宽度（英寸）
-        page_width = section.page_width.inches if section.page_width else 8.5
-        # 页边距
-        left_margin = section.left_margin.inches if section.left_margin else 1.0
-        right_margin = section.right_margin.inches if section.right_margin else 1.0
-        # 可用宽度
-        available_width = page_width - left_margin - right_margin
+        # 页面高度（英寸）
+        page_height = section.page_height.inches if section.page_height else 11
+        # 上下边距
+        top_margin = section.top_margin.inches if section.top_margin else 1
+        bottom_margin = section.bottom_margin.inches if section.bottom_margin else 1
+        # 可用高度
+        available_height = page_height - top_margin - bottom_margin
     else:
-        available_width = 6.5  # 默认 A4 宽度减去标准边距
+        available_height = 9  # 默认可用高度
     
-    visual_line_map = []
-    current_line = 1
+    page_numbers = []
+    current_page = 1
+    current_page_used_height = 0
+    
+    # 估算每英寸高度可容纳的 12pt 文字行数（约5-6行）
+    lines_per_inch = 5.5
     
     for para in doc.paragraphs:
         text = para.text.rstrip()
         
-        if not text:
-            visual_line_map.append(current_line)
-            current_line += 1
-            continue
-        
         # 获取字体大小
-        font_size = 12  # 默认
+        font_size = 12
         try:
             if para.runs and para.runs[0].font.size:
                 font_size = para.runs[0].font.size.pt
         except:
             pass
         
-        # 计算字符宽度（英寸）
-        # 12pt 字体约 1/72 英寸每磅，每个字符约 0.5-0.6 倍字号宽度
-        char_width_inches = (font_size / 72) * 0.55
+        # 计算该段落占用的高度（英寸）
+        # 字体越大，行高越大
+        line_height = (font_size / 12) * (1 / lines_per_inch)
         
-        # 计算每行可容纳的字符数
-        chars_per_line = int(available_width / char_width_inches)
-        chars_per_line = max(40, min(chars_per_line, 120))  # 合理范围
+        # 估算段落行数（简单估算）
+        effective_chars = sum(2 if '\u4e00' <= c <= '\u9fff' else 1 for c in text)
+        chars_per_line = 80  # 简化估算
+        lines_needed = max(1, (effective_chars + chars_per_line - 1) // chars_per_line)
         
-        # 计算缩进占用的字符数
-        indent_chars = 0
+        para_height = lines_needed * line_height
+        
+        # 段落前后间距
+        space_before = 0
+        space_after = 0
         try:
-            if para.paragraph_format.left_indent:
-                indent_chars = int(para.paragraph_format.left_indent.inches / char_width_inches)
+            if para.paragraph_format.space_before:
+                space_before = para.paragraph_format.space_before.pt / 72  # 转换为英寸
+            if para.paragraph_format.space_after:
+                space_after = para.paragraph_format.space_after.pt / 72
         except:
             pass
         
-        effective_chars_per_line = max(20, chars_per_line - indent_chars)
+        total_height = space_before + para_height + space_after
         
-        # 计算等效字符长度（中文算2个）
-        effective_length = sum(2 if '\u4e00' <= c <= '\u9fff' else 1 for c in text)
+        # 检查是否跨页
+        if current_page_used_height + total_height > available_height:
+            current_page += 1
+            current_page_used_height = total_height
+        else:
+            current_page_used_height += total_height
         
-        # 计算需要的行数
-        lines_needed = max(1, (effective_length + effective_chars_per_line - 1) // effective_chars_per_line)
-        
-        visual_line_map.append(current_line)
-        current_line += lines_needed
+        page_numbers.append(current_page)
     
-    return visual_line_map
+    return page_numbers
 
 
 @register_reader('.docx')
 def read_docx(path, use_precise=True):
     """
-    读取docx，返回内容列表和视觉行号映射
-    use_precise: 是否使用高精度计算（考虑页面设置、字体等）
+    读取docx，返回内容列表和位置信息
+    位置信息格式: [(paragraph_number, page_number), ...]
     """
     doc = Document(path)
     lines = [para.text.rstrip() for para in doc.paragraphs]
     
-    if use_precise:
-        # 使用高精度计算
-        visual_line_map = calculate_precise_visual_lines(doc)
-    else:
-        # 使用简单估算
-        visual_line_map = []
-        current_line = 1
-        for text in lines:
-            visual_line_map.append(current_line)
-            current_line += estimate_visual_lines(text, chars_per_line=80)
+    # 估算页码
+    page_numbers = estimate_paragraph_pages(doc)
     
-    return lines, visual_line_map
+    # 构建位置信息 (段落号, 页码)
+    location_info = []
+    for i, page_num in enumerate(page_numbers):
+        location_info.append((i + 1, page_num))
+    
+    return lines, location_info
 
 
 @register_reader('.pdf')
@@ -431,26 +409,21 @@ def get_word_line_number_offset(doc_path):
     return None
 
 
-def build_diff_report(lines1, lines2, visual_map1=None, visual_map2=None, line_offset=0):
+def build_diff_report(lines1, lines2, location_info1=None, location_info2=None):
     """
     使用 difflib.SequenceMatcher 分析差异，返回仅包含差异行的数据。
-    每个元素为 (tag, left_line_no, left_text, right_line_no, right_text)
+    每个元素为 (tag, left_loc, left_text, right_loc, right_text)
     tag 取值: replace, delete, insert
-    行号使用 Word 视觉行号（考虑自动换行和偏移量校准）。
+    location 格式: (paragraph_number, page_number) 或 None
     """
     sm = difflib.SequenceMatcher(None, lines1, lines2, autojunk=False)
     opcodes = sm.get_opcodes()
     
-    # 如果没有提供视觉行号映射，使用默认的段落索引+1
-    if visual_map1 is None:
-        visual_map1 = list(range(1, len(lines1) + 1))
-    if visual_map2 is None:
-        visual_map2 = list(range(1, len(lines2) + 1))
-    
-    # 应用偏移量校准
-    if line_offset != 0:
-        visual_map1 = [max(1, x + line_offset) for x in visual_map1]
-        visual_map2 = [max(1, x + line_offset) for x in visual_map2]
+    # 如果没有提供位置信息，使用默认的段落索引+1
+    if location_info1 is None:
+        location_info1 = [(i + 1, 1) for i in range(len(lines1))]
+    if location_info2 is None:
+        location_info2 = [(i + 1, 1) for i in range(len(lines2))]
 
     rows = []
     for tag, i1, i2, j1, j2 in opcodes:
@@ -461,26 +434,26 @@ def build_diff_report(lines1, lines2, visual_map1=None, visual_map2=None, line_o
             for k in range(max_len):
                 left_exists = i1 + k < i2
                 right_exists = j1 + k < j2
-                lnum = visual_map1[i1 + k] if left_exists else None
-                rnum = visual_map2[j1 + k] if right_exists else None
+                left_loc = location_info1[i1 + k] if left_exists else None
+                right_loc = location_info2[j1 + k] if right_exists else None
                 ltext = lines1[i1 + k] if left_exists else ""
                 rtext = lines2[j1 + k] if right_exists else ""
                 if left_exists and right_exists:
-                    rows.append(('replace', lnum, ltext, rnum, rtext))
+                    rows.append(('replace', left_loc, ltext, right_loc, rtext))
                 elif left_exists and not right_exists:
-                    rows.append(('delete', lnum, ltext, None, ""))
+                    rows.append(('delete', left_loc, ltext, None, ""))
                 elif not left_exists and right_exists:
-                    rows.append(('insert', None, "", rnum, rtext))
+                    rows.append(('insert', None, "", right_loc, rtext))
         elif tag == 'delete':
             for k in range(i2 - i1):
-                lnum = visual_map1[i1 + k]
+                left_loc = location_info1[i1 + k]
                 ltext = lines1[i1 + k]
-                rows.append(('delete', lnum, ltext, None, ""))
+                rows.append(('delete', left_loc, ltext, None, ""))
         elif tag == 'insert':
             for k in range(j2 - j1):
-                rnum = visual_map2[j1 + k]
+                right_loc = location_info2[j1 + k]
                 rtext = lines2[j1 + k]
-                rows.append(('insert', None, "", rnum, rtext))
+                rows.append(('insert', None, "", right_loc, rtext))
 
     return rows
 
@@ -625,9 +598,9 @@ def generate_docx(rows, name1, name2, output_path):
     col_widths = [0.55, 3.80, 0.45, 0.55, 3.80]
     set_table_column_widths(table, col_widths)
 
-    # 设置表头
+    # 设置表头 - 改为显示页码-段落号
     hdr_cells = table.rows[0].cells
-    headers = ['行号', name1, '标记', '行号', name2]
+    headers = ['位置', name1, '标记', '位置', name2]
     header_colors = [None, color_left, None, None, color_right]
     for idx, text in enumerate(headers):
         cell = hdr_cells[idx]
@@ -640,26 +613,36 @@ def generate_docx(rows, name1, name2, output_path):
             run.font.color.rgb = RGBColor(*header_colors[idx])
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    for tag, lnum, ltext, rnum, rtext in rows:
+    for tag, left_loc, ltext, right_loc, rtext in rows:
         row_cells = table.add_row().cells
 
-        # 行号1
+        # 位置1 - 格式: P页码-段落号
         cell = row_cells[0]
         set_cell_width(cell, col_widths[0])
         p = cell.paragraphs[0]
         p.clear()
-        run = p.add_run(str(lnum) if lnum is not None else '')
-        set_run_font(run, size=Pt(9))
+        if left_loc is not None:
+            para_num, page_num = left_loc
+            loc_text = f"P{page_num}-{para_num}"
+        else:
+            loc_text = ""
+        run = p.add_run(loc_text)
+        set_run_font(run, size=Pt(8))
         run.font.color.rgb = RGBColor(*color_gray)
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-        # 行号2
+        # 位置2 - 格式: P页码-段落号
         cell = row_cells[3]
         set_cell_width(cell, col_widths[3])
         p = cell.paragraphs[0]
         p.clear()
-        run = p.add_run(str(rnum) if rnum is not None else '')
-        set_run_font(run, size=Pt(9))
+        if right_loc is not None:
+            para_num, page_num = right_loc
+            loc_text = f"P{page_num}-{para_num}"
+        else:
+            loc_text = ""
+        run = p.add_run(loc_text)
+        set_run_font(run, size=Pt(8))
         run.font.color.rgb = RGBColor(*color_gray)
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -737,16 +720,13 @@ def main():
     parser = argparse.ArgumentParser(description='文档对比工具')
     parser.add_argument('file1', help='第一个文档路径')
     parser.add_argument('file2', help='第二个文档路径')
-    parser.add_argument('--offset', type=int, default=0, help='行号偏移量（对比报告行号 = 估算行号 + 偏移量）')
-    parser.add_argument('--simple', action='store_true', help='使用简单行号计算（段落号），不估算视觉行号')
-    parser.add_argument('--calibrate', action='store_true', help='校准模式：输出行号对比信息用于调试')
+    parser.add_argument('--calibrate', action='store_true', help='校准模式：输出段落位置信息用于调试')
     
     args = parser.parse_args()
     
     file1 = args.file1
     file2 = args.file2
-    line_offset = args.offset
-    use_precise = not args.simple
+    use_precise = True
     
     if not os.path.exists(file1):
         print(f"错误: 文件不存在: {file1}")
@@ -763,30 +743,31 @@ def main():
     print(f"正在读取 {file1} ...")
     result1 = read_document(file1, use_precise=use_precise)
     if isinstance(result1, tuple):
-        lines1, visual_map1 = result1
+        lines1, location_info1 = result1
     else:
         lines1 = result1
-        visual_map1 = None
+        location_info1 = None
     print(f"  共 {len(lines1)} 段落")
     
-    # 校准模式：显示前几个段落的行号
-    if args.calibrate and visual_map1:
+    # 校准模式：显示前几个段落的位置信息
+    if args.calibrate and location_info1:
         print("\n校准信息（前5个段落）:")
         for i in range(min(5, len(lines1))):
-            print(f"  段落 {i+1}: 估算视觉行号 = {visual_map1[i]}")
-        print("  请与Word实际行号对比，使用 --offset 调整\n")
+            para_num, page_num = location_info1[i]
+            print(f"  段落 {i+1}: 第{page_num}页-第{para_num}段")
+        print()
 
     print(f"正在读取 {file2} ...")
     result2 = read_document(file2, use_precise=use_precise)
     if isinstance(result2, tuple):
-        lines2, visual_map2 = result2
+        lines2, location_info2 = result2
     else:
         lines2 = result2
-        visual_map2 = None
+        location_info2 = None
     print(f"  共 {len(lines2)} 段落")
 
     print("正在分析差异 ...")
-    rows = build_diff_report(lines1, lines2, visual_map1, visual_map2, line_offset)
+    rows = build_diff_report(lines1, lines2, location_info1, location_info2)
 
     print("正在生成报告 ...")
     generate_docx(rows, name1, name2, output_path)
