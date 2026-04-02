@@ -732,11 +732,11 @@ def generate_docx(rows, name1, name2, output_path):
     color_gray = (100, 100, 100)
     color_placeholder = (0, 176, 80)  # 绿色，用于缺失句子
 
-    # 第一行：文档对比报告
+    # First line: Document Comparison Report
     p_title = doc.add_paragraph()
     p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p_title.add_run('文档对比报告')
-    set_run_font(run, east_asia='黑体', size=Pt(18), bold=False)
+    run = p_title.add_run('Document Comparison Report')
+    set_run_font(run, font_name='Noto Serif', east_asia='Noto Serif', size=Pt(18), bold=True)
 
     # 第二行：两个文档名称
     p_names = doc.add_paragraph()
@@ -800,7 +800,7 @@ def generate_docx(rows, name1, name2, output_path):
     table.autofit = False
     table.allow_autofit = False
 
-    col_widths = [0.55, 3.80, 0.45, 0.55, 3.80]
+    col_widths = [0.65, 3.70, 0.50, 0.65, 3.70]
     set_table_column_widths(table, col_widths)
 
     # 设置表头 - 改为显示page number-paragraphs号
