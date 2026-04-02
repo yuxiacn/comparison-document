@@ -180,12 +180,13 @@ def read_docx(path, use_precise=True):
 
 
 @register_reader('.pdf')
-def read_pdf(path, merge_lines=True):
+def read_pdf(path, merge_lines=True, merge_across_pages=True):
     """
     读取PDF，返回内容列表和位置信息(段落号, 页码, 行号)
     
     参数:
         merge_lines: 是否将连续的非空行合并为一个段落
+        merge_across_pages: 是否合并跨页的段落（避免跨页段落被分割）
     
     返回:
         paragraphs: 文本内容列表
@@ -206,54 +207,130 @@ def read_pdf(path, merge_lines=True):
     # 用于识别行首的视觉行号：行开头的数字（空格+数字+空格或句点）
     line_number_pattern = re.compile(r'^(\s*\d+)[\.\s]\s*')
     
+    # 先收集所有页面的原始行信息
+    all_pages_lines = []  # [(page_num, lines), ...]
+    
     with pdfplumber.open(path) as pdf:
         for page_num, page in enumerate(pdf.pages, 1):
             text = page.extract_text()
             if not text:
+                all_pages_lines.append((page_num, []))
                 continue
-                
-            page_lines = text.splitlines()
             
-            if merge_lines:
-                # 智能段落合并
-                current_paragraph = []
-                current_line_num = None  # 记录段落的起始行号
+            page_lines = text.splitlines()
+            processed_lines = []
+            
+            for line in page_lines:
+                line = line.rstrip()
+                if not line:
+                    continue
+                # 过滤页码行
+                if page_number_pattern.match(line):
+                    continue
                 
-                for i, line in enumerate(page_lines):
-                    line = line.rstrip()
+                # 提取行首的视觉行号
+                visual_line_num = None
+                match = line_number_pattern.match(line)
+                if match:
+                    try:
+                        visual_line_num = int(match.group(1).strip())
+                        line = line[match.end():].lstrip()
+                    except ValueError:
+                        pass
+                
+                if line:
+                    processed_lines.append((line, visual_line_num))
+            
+            all_pages_lines.append((page_num, processed_lines))
+    
+    # 跨页段落合并处理
+    if merge_across_pages and merge_lines:
+        # 将所有页面的行合并，然后统一处理段落
+        all_lines = []
+        for page_num, lines in all_pages_lines:
+            for line, line_num in lines:
+                all_lines.append((line, line_num, page_num))
+        
+        # 统一处理段落合并
+        current_paragraph = []
+        current_line_num = None
+        current_page = None
+        
+        i = 0
+        while i < len(all_lines):
+            line, visual_line_num, page_num = all_lines[i]
+            
+            # 检查是否是新段落的开始
+            is_new_para = False
+            
+            if not current_paragraph:
+                # 第一个段落开始
+                is_new_para = True
+            else:
+                # 检查当前行是否属于新段落
+                stripped = line.lstrip()
+                indent = len(line) - len(stripped)
+                
+                # 条件1: 明显缩进（4空格以上）
+                if indent >= 4:
+                    is_new_para = True
+                # 条件2: 上一行以句号等结束，且当前行以大写或数字开头
+                else:
+                    prev_line = current_paragraph[-1]
+                    if prev_line and prev_line[-1] in '.。!?':
+                        if stripped and (stripped[0].isupper() or stripped[0].isdigit()):
+                            is_new_para = True
+                    # 条件3: 当前行是空行分隔（已过滤）或行号重置（明显变小）
+                    if visual_line_num and current_line_num:
+                        if visual_line_num < current_line_num and visual_line_num < 10:
+                            is_new_para = True
+            
+            if is_new_para and current_paragraph:
+                # 保存当前段落
+                paragraph_counter += 1
+                para_text = ' '.join(current_paragraph)
+                paragraphs.append(para_text)
+                location_info.append((paragraph_counter, current_page or page_num, current_line_num))
+                
+                # 开始新段落
+                current_paragraph = [line]
+                current_line_num = visual_line_num
+                current_page = page_num
+            else:
+                # 继续当前段落
+                if not current_paragraph:
+                    current_line_num = visual_line_num
+                    current_page = page_num
+                current_paragraph.append(line)
+            
+            i += 1
+        
+        # 保存最后一个段落
+        if current_paragraph:
+            paragraph_counter += 1
+            para_text = ' '.join(current_paragraph)
+            paragraphs.append(para_text)
+            location_info.append((paragraph_counter, current_page, current_line_num))
+    
+    else:
+        # 逐页处理，不跨页合并
+        for page_num, lines in all_pages_lines:
+            if merge_lines:
+                current_paragraph = []
+                current_line_num = None
+                
+                for line, visual_line_num in lines:
                     if not line:
-                        # 空行表示段落结束
                         if current_paragraph:
                             paragraph_counter += 1
                             para_text = ' '.join(current_paragraph)
-                            # 检查是否只是页码（过滤掉）
-                            if not page_number_pattern.match(para_text):
-                                paragraphs.append(para_text)
-                                location_info.append((paragraph_counter, page_num, current_line_num))
+                            paragraphs.append(para_text)
+                            location_info.append((paragraph_counter, page_num, current_line_num))
                             current_paragraph = []
                             current_line_num = None
                         continue
                     
-                    # 检查是否是单独的页码行（过滤掉）
-                    if page_number_pattern.match(line):
-                        continue
-                    
-                    # 提取行首的视觉行号
-                    visual_line_num = None
-                    match = line_number_pattern.match(line)
-                    if match:
-                        try:
-                            visual_line_num = int(match.group(1).strip())
-                            # 移除行首的数字
-                            line = line[match.end():].lstrip()
-                        except ValueError:
-                            pass
-                    
-                    # 记录段落的第一个行号
-                    if not current_paragraph and visual_line_num:
-                        current_line_num = visual_line_num
-                    
-                    # 检查是否是新段落
+                    # 检查新段落
                     is_new_para = False
                     if current_paragraph:
                         stripped = line.lstrip()
@@ -268,38 +345,24 @@ def read_pdf(path, merge_lines=True):
                     if is_new_para and current_paragraph:
                         paragraph_counter += 1
                         para_text = ' '.join(current_paragraph)
-                        if not page_number_pattern.match(para_text):
-                            paragraphs.append(para_text)
-                            location_info.append((paragraph_counter, page_num, current_line_num))
+                        paragraphs.append(para_text)
+                        location_info.append((paragraph_counter, page_num, current_line_num))
                         current_paragraph = [line]
                         current_line_num = visual_line_num
                     else:
+                        if not current_paragraph:
+                            current_line_num = visual_line_num
                         current_paragraph.append(line)
                 
-                # 处理最后一个段落
+                # 保存最后一个段落
                 if current_paragraph:
                     paragraph_counter += 1
                     para_text = ' '.join(current_paragraph)
-                    if not page_number_pattern.match(para_text):
-                        paragraphs.append(para_text)
-                        location_info.append((paragraph_counter, page_num, current_line_num))
+                    paragraphs.append(para_text)
+                    location_info.append((paragraph_counter, page_num, current_line_num))
             else:
-                # 原始模式：每行单独处理
-                for line in page_lines:
-                    line = line.rstrip()
-                    if not line or page_number_pattern.match(line):
-                        continue
-                    
-                    # 提取行首的视觉行号
-                    visual_line_num = None
-                    match = line_number_pattern.match(line)
-                    if match:
-                        try:
-                            visual_line_num = int(match.group(1).strip())
-                            line = line[match.end():].lstrip()
-                        except ValueError:
-                            pass
-                    
+                # 不合并，每行独立
+                for line, visual_line_num in lines:
                     if line:
                         paragraph_counter += 1
                         paragraphs.append(line)
@@ -330,11 +393,12 @@ def read_pptx(path):
     return lines, location_info
 
 
-def read_document(path, use_precise=True, merge_lines=True):
+def read_document(path, use_precise=True, merge_lines=True, merge_across_pages=True):
     """
     读取文档内容
     use_precise: 对docx文件是否使用高精度视觉行号计算
     merge_lines: 对pdf/txt是否合并连续行（将物理换行合并为逻辑段落）
+    merge_across_pages: 对pdf是否合并跨页段落
     """
     ext = Path(path).suffix.lower()
     if ext not in READERS:
@@ -344,7 +408,9 @@ def read_document(path, use_precise=True, merge_lines=True):
     # 对不同格式传递相应参数
     if ext == '.docx':
         return reader(path, use_precise=use_precise)
-    elif ext in ('.pdf', '.txt'):
+    elif ext == '.pdf':
+        return reader(path, merge_lines=merge_lines, merge_across_pages=merge_across_pages)
+    elif ext == '.txt':
         return reader(path, merge_lines=merge_lines)
     else:
         return reader(path)
@@ -872,6 +938,7 @@ def main():
     parser.add_argument('file2', help='第二个文档路径')
     parser.add_argument('--calibrate', action='store_true', help='校准模式：输出段落位置信息用于调试')
     parser.add_argument('--no-merge', action='store_true', help='PDF/TXT文件不合并连续行（按原始行对比）')
+    parser.add_argument('--no-page-merge', action='store_true', help='PDF不合并跨页段落（每页独立处理）')
     
     args = parser.parse_args()
     
@@ -879,6 +946,7 @@ def main():
     file2 = args.file2
     use_precise = True
     merge_lines = not args.no_merge  # 默认合并，--no-merge 时关闭
+    merge_across_pages = not args.no_page_merge  # 默认跨页合并，--no-page-merge 时关闭
     
     if not os.path.exists(file1):
         print(f"错误: 文件不存在: {file1}")
@@ -893,7 +961,7 @@ def main():
     output_path = os.path.join(os.getcwd(), output_name)
 
     print(f"正在读取 {file1} ...")
-    result1 = read_document(file1, use_precise=use_precise, merge_lines=merge_lines)
+    result1 = read_document(file1, use_precise=use_precise, merge_lines=merge_lines, merge_across_pages=merge_across_pages)
     if isinstance(result1, tuple):
         lines1, location_info1 = result1
     else:
@@ -914,7 +982,7 @@ def main():
         print()
 
     print(f"正在读取 {file2} ...")
-    result2 = read_document(file2, use_precise=use_precise, merge_lines=merge_lines)
+    result2 = read_document(file2, use_precise=use_precise, merge_lines=merge_lines, merge_across_pages=merge_across_pages)
     if isinstance(result2, tuple):
         lines2, location_info2 = result2
     else:
