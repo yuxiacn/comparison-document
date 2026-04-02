@@ -933,7 +933,29 @@ def generate_docx(rows, name1, name2, output_path):
 def main():
     import argparse
     
-    parser = argparse.ArgumentParser(description='文档对比工具')
+    # 程序开头说明
+    print("=" * 70)
+    print("文档对比工具 - 支持PDF/DOCX/PPTX/TXT格式对比")
+    print("功能：对比两个文档的差异，生成Word格式的对比报告")
+    print("=" * 70)
+    print()
+    
+    parser = argparse.ArgumentParser(
+        description='文档对比工具 - 对比两个文档并生成Word格式的差异报告',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+支持格式:
+  PDF   - 支持跨页段落合并、页码过滤、视觉行号提取
+  DOCX  - 支持段落级对比、估算页码
+  PPTX  - 幻灯片文本对比
+  TXT   - 纯文本对比
+
+示例:
+  python compare_docs.py paper1.pdf paper2.pdf
+  python compare_docs.py report1.docx report2.docx --calibrate
+  python compare_docs.py doc1.txt doc2.txt --no-merge
+        '''
+    )
     parser.add_argument('file1', help='第一个文档路径')
     parser.add_argument('file2', help='第二个文档路径')
     parser.add_argument('--calibrate', action='store_true', help='校准模式：输出段落位置信息用于调试')
