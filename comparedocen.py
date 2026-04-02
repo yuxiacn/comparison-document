@@ -193,191 +193,100 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
     """
     Read PDF file, return content list and location info (paragraph number, page number, line number)
     
-    Args:
-        merge_lines: whether to merge consecutive non-empty lines into a paragraph
-        merge_across_pages: whether to merge paragraphs across pages
-    
-    Returns:
-        paragraphs: list of text content
-        location_info: [(paragraph_num, page_num, line_num), ...]
+    New approach:
+    1. Extract lines with line numbers (filter out page numbers)
+    2. Remove line numbers, keep indentation, record which lines have indentation
+    3. Join all lines into one big string (remove hard returns)
+    4. Insert newlines before indented lines to create paragraphs
+    5. Split into paragraphs
     """
     try:
         import pdfplumber
     except ImportError:
         raise ImportError("Please install pdfplumber for PDF support: pip install pdfplumber")
     
-    paragraphs = []
-    location_info = []
-    paragraph_counter = 0
+    import re
     
     # Pattern to identify page numbers: standalone numeric lines (1-4 digits)
-    import re
     page_number_pattern = re.compile(r'^\s*\d{1,4}\s*$')
-    # Pattern to identify visual line numbers and capture trailing spaces
-    # Format: "  1.  content" -> num="  1", sep=".", spaces="  ", content="content"
-    # Format: "114  content" -> num="114", sep=" ", spaces=" ", content="content"
-    # Format: "115     content" -> num="115", sep=" ", spaces="    ", content="content"
-    line_number_pattern = re.compile(r'^(\s*\d+)([\.\s])(\s*)')
+    # Pattern to identify visual line numbers: "114 " or "115     " etc.
+    # Captures the number and the spaces after it separately
+    line_number_pattern = re.compile(r'^(\s*\d+)\s(.*)$')
     
-    # Collect raw line info from all pages first
-    all_pages_lines = []  # [(page_num, lines), ...]
+    # Step 1 & 2: Extract lines, remove line numbers, keep indent info
+    all_lines_info = []  # [(content_with_indent, line_num, has_indent), ...]
     
     with pdfplumber.open(path) as pdf:
         for page_num, page in enumerate(pdf.pages, 1):
             text = page.extract_text()
             if not text:
-                all_pages_lines.append((page_num, []))
                 continue
             
             page_lines = text.splitlines()
-            processed_lines = []
             
             for line in page_lines:
                 line = line.rstrip()
                 if not line:
                     continue
+                
                 # Filter page number lines
                 if page_number_pattern.match(line):
                     continue
                 
-                # Extract visual line number at line start
-                visual_line_num = None
+                # Extract line number
                 match = line_number_pattern.match(line)
                 if match:
                     try:
-                        visual_line_num = int(match.group(1).strip())
-                        # group(3) is the spaces after line number separator
-                        # Content starts after all matched groups
-                        spaces_after_line_num = match.group(3)
-                        content = line[match.end():]
-                        # Total indent = spaces after line num + any leading spaces in content
-                        content_stripped = content.lstrip()
-                        additional_indent = len(content) - len(content_stripped)
-                        total_indent = len(spaces_after_line_num) + additional_indent
-                        # Reconstruct line with proper indent for detection
-                        line = ' ' * total_indent + content_stripped
+                        line_num = int(match.group(1).strip())
+                        # Content includes any spaces after line number
+                        content = match.group(2)
+                        # Check if has indentation (starts with spaces)
+                        has_indent = len(content) > 0 and content[0] == ' '
+                        all_lines_info.append((content, line_num, has_indent, page_num))
                     except ValueError:
-                        pass
-                
-                # Check if there's actual content (ignoring leading/trailing spaces)
-                if line.strip():
-                    processed_lines.append((line, visual_line_num))
-            
-            all_pages_lines.append((page_num, processed_lines))
+                        # No line number, treat as regular line
+                        all_lines_info.append((line, None, False, page_num))
+                else:
+                    # No line number, treat as regular line
+                    all_lines_info.append((line, None, False, page_num))
     
-    # Cross-page paragraph merging
-    if merge_across_pages and merge_lines:
-        # Merge all page lines, then process paragraphs uniformly
-        all_lines = []
-        for page_num, lines in all_pages_lines:
-            for line, line_num in lines:
-                all_lines.append((line, line_num, page_num))
-        
-        # Uniform paragraph merging
-        current_paragraph = []
-        current_line_num = None
-        current_page = None
-        
-        i = 0
-        while i < len(all_lines):
-            line, visual_line_num, page_num = all_lines[i]
-            
-            # Check if new paragraph starts
-            is_new_para = False
-            
-            if not current_paragraph:
-                # First paragraph starts
-                is_new_para = True
-            else:
-                # New paragraph starts ONLY when current line has indent
-                stripped = line.lstrip()
-                indent = len(line) - len(stripped)
-                
-                # Has indent (> 0) = new paragraph start
-                if indent > 0:
-                    is_new_para = True
-            
-            if is_new_para and current_paragraph:
-                # Save current paragraph
-                paragraph_counter += 1
-                para_text = ' '.join(current_paragraph)
-                paragraphs.append(para_text)
-                location_info.append((paragraph_counter, current_page or page_num, current_line_num))
-                
-                # Start new paragraph (store without leading spaces)
-                current_paragraph = [line.lstrip()]
-                current_line_num = visual_line_num
-                current_page = page_num
-            else:
-                # Continue current paragraph (store without leading spaces)
-                if not current_paragraph:
-                    current_line_num = visual_line_num
-                    current_page = page_num
-                current_paragraph.append(line.lstrip())
-            
-            i += 1
-        
-        # Save last paragraph
-        if current_paragraph:
+    # Step 3 & 4: Join lines and insert newlines before indented lines
+    # Build text with newlines at paragraph boundaries
+    paragraph_texts = []
+    current_para_parts = []
+    current_para_start_line = None
+    current_para_page = None
+    location_info = []
+    paragraph_counter = 0
+    
+    for i, (content, line_num, has_indent, page_num) in enumerate(all_lines_info):
+        # If this line has indent and we already have content, start new paragraph
+        if has_indent and current_para_parts:
+            # Save current paragraph
             paragraph_counter += 1
-            para_text = ' '.join(current_paragraph)
-            paragraphs.append(para_text)
-            location_info.append((paragraph_counter, current_page, current_line_num))
+            para_text = ' '.join(current_para_parts)
+            paragraph_texts.append(para_text)
+            location_info.append((paragraph_counter, current_para_page, current_para_start_line))
+            
+            # Start new paragraph
+            current_para_parts = [content.lstrip()]  # Remove leading spaces for content
+            current_para_start_line = line_num
+            current_para_page = page_num
+        else:
+            # Continue current paragraph
+            if not current_para_parts:
+                current_para_start_line = line_num
+                current_para_page = page_num
+            current_para_parts.append(content.lstrip())  # Remove leading spaces for content
     
-    else:
-        # Process page by page, no cross-page merging
-        for page_num, lines in all_pages_lines:
-            if merge_lines:
-                current_paragraph = []
-                current_line_num = None
-                
-                for line, visual_line_num in lines:
-                    if not line:
-                        if current_paragraph:
-                            paragraph_counter += 1
-                            para_text = ' '.join(current_paragraph)
-                            paragraphs.append(para_text)
-                            location_info.append((paragraph_counter, page_num, current_line_num))
-                            current_paragraph = []
-                            current_line_num = None
-                        continue
-                    
-                    # Check new paragraph - indent only
-                    is_new_para = False
-                    if current_paragraph:
-                        stripped = line.lstrip()
-                        indent = len(line) - len(stripped)
-                        # Has indent (> 0) = new paragraph start
-                        if indent > 0:
-                            is_new_para = True
-                    
-                    if is_new_para and current_paragraph:
-                        paragraph_counter += 1
-                        para_text = ' '.join(current_paragraph)
-                        paragraphs.append(para_text)
-                        location_info.append((paragraph_counter, page_num, current_line_num))
-                        current_paragraph = [line.lstrip()]  # Store without leading spaces
-                        current_line_num = visual_line_num
-                    else:
-                        if not current_paragraph:
-                            current_line_num = visual_line_num
-                        current_paragraph.append(line.lstrip())  # Store without leading spaces
-                
-                # Save last paragraph
-                if current_paragraph:
-                    paragraph_counter += 1
-                    para_text = ' '.join(current_paragraph)
-                    paragraphs.append(para_text)
-                    location_info.append((paragraph_counter, page_num, current_line_num))
-            else:
-                # No merging, each line independent
-                for line, visual_line_num in lines:
-                    if line.strip():
-                        paragraph_counter += 1
-                        paragraphs.append(line.lstrip())
-                        location_info.append((paragraph_counter, page_num, visual_line_num))
+    # Save last paragraph
+    if current_para_parts:
+        paragraph_counter += 1
+        para_text = ' '.join(current_para_parts)
+        paragraph_texts.append(para_text)
+        location_info.append((paragraph_counter, current_para_page, current_para_start_line))
     
-    return paragraphs, location_info
+    return paragraph_texts, location_info
 
 
 @register_reader('.pptx')
