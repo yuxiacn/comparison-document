@@ -319,28 +319,28 @@ def word_diff_runs(text1, text2):
             
             for tag, i1, i2, j1, j2 in opcodes:
                 if tag == 'equal':
-                    for k in range(i1, i2):
+                    for k in range(i1, min(i2, len(sents1))):
                         left_runs.append((sents1[k], False, False))
-                    for k in range(j1, j2):
+                    for k in range(j1, min(j2, len(sents2))):
                         right_runs.append((sents2[k], False, False))
                 elif tag == 'replace':
                     # 替换：两边内容不同
                     max_len = max(i2 - i1, j2 - j1)
                     for k in range(max_len):
-                        if i1 + k < i2:
+                        if i1 + k < i2 and i1 + k < len(sents1):
                             left_runs.append((sents1[i1 + k], True, False))
-                        if j1 + k < j2:
+                        if j1 + k < j2 and j1 + k < len(sents2):
                             right_runs.append((sents2[j1 + k], True, False))
                 elif tag == 'delete':
                     # 左边有句子，右边缺失整句
-                    for k in range(i1, i2):
+                    for k in range(i1, min(i2, len(sents1))):
                         left_runs.append((sents1[k], True, False))
                         right_runs.append(('[此处缺失句子]', True, True))
                 elif tag == 'insert':
                     # 右边有句子，左边缺失整句
-                    for k in range(j1, j2):
+                    for k in range(j1, min(j2, len(sents2))):
                         left_runs.append(('[此处缺失句子]', True, True))
-                        right_runs.append((sents2[j1 + k], True, False))
+                        right_runs.append((sents2[k], True, False))
             
             # 合并连续的 [此处缺失句子] 占位符
             def merge_consecutive_placeholders(runs):
