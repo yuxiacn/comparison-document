@@ -213,9 +213,11 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
     # Pattern to identify page numbers: standalone numeric lines (1-4 digits)
     import re
     page_number_pattern = re.compile(r'^\s*\d{1,4}\s*$')
-    # Pattern to identify visual line numbers: matches line num + one separator only
-    # Preserves trailing spaces for indent detection
-    line_number_pattern = re.compile(r'^(\s*\d+)[\.\s]')
+    # Pattern to identify visual line numbers and capture trailing spaces
+    # Format: "  1.  content" -> num="  1", sep=".", spaces="  ", content="content"
+    # Format: "114  content" -> num="114", sep=" ", spaces=" ", content="content"
+    # Format: "115     content" -> num="115", sep=" ", spaces="    ", content="content"
+    line_number_pattern = re.compile(r'^(\s*\d+)([\.\s])(\s*)')
     
     # Collect raw line info from all pages first
     all_pages_lines = []  # [(page_num, lines), ...]
@@ -244,8 +246,16 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 if match:
                     try:
                         visual_line_num = int(match.group(1).strip())
-                        # Remove line number but KEEP leading spaces for indent detection
-                        line = line[match.end():]
+                        # group(3) is the spaces after line number separator
+                        # Content starts after all matched groups
+                        spaces_after_line_num = match.group(3)
+                        content = line[match.end():]
+                        # Total indent = spaces after line num + any leading spaces in content
+                        content_stripped = content.lstrip()
+                        additional_indent = len(content) - len(content_stripped)
+                        total_indent = len(spaces_after_line_num) + additional_indent
+                        # Reconstruct line with proper indent for detection
+                        line = ' ' * total_indent + content_stripped
                     except ValueError:
                         pass
                 
