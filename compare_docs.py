@@ -21,7 +21,13 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 # 版本号
-VERSION = "Build20260403.1"
+# 格式: V主版本.次版本.Build年月日.修订号
+# 更新规则:
+#   - 重大功能更新: 主版本+1 (如 V2.0 → V3.0)
+#   - 功能修改/优化: 次版本+1 (如 V2.0 → V2.1)
+#   - 日常修改/bug修复: 修订号+1 (如 V2.0.Build20260403.1 → V2.0.Build20260403.2)
+#   - 每次修改后，同时更新日期和修订号
+VERSION = "V2.0.Build20260403.1"
 
 # 读取器注册表
 READERS = {}
