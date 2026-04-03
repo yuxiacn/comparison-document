@@ -524,14 +524,13 @@ def split_sentences(text):
 
 def word_diff_runs(text1, text2):
     """
-    Word-level fine-grained difference analysis, supporting sentence-level missing detection.
+    Word-level fine-grained difference analysis.
     Returns left_runs and right_runs, each is a list of (text, is_diff, is_placeholder).
-    is_placeholder=True indicates a missing content placeholder [Missing Sentence]
     
     Logic:
     1. First split text into sentences
     2. Compare at sentence level
-    3. When one side has a complete sentence (with delimiter) and the other does not, show placeholder
+    3. When one side has a complete sentence and the other does not, only show the existing side
     """
     # First try sentence-level comparison
     sents1 = split_sentences(text1)
@@ -569,29 +568,10 @@ def word_diff_runs(text1, text2):
                     # Left has sentence, right missing entire sentence
                     for k in range(i1, min(i2, len(sents1))):
                         left_runs.append((sents1[k], True, False))
-                        right_runs.append(('[Missing Sentence]', True, True))
                 elif tag == 'insert':
                     # Right has sentence, left missing entire sentence
                     for k in range(j1, min(j2, len(sents2))):
-                        left_runs.append(('[Missing Sentence]', True, True))
                         right_runs.append((sents2[k], True, False))
-            
-            # Merge consecutive [Missing Sentence] placeholders
-            def merge_consecutive_placeholders(runs):
-                if not runs:
-                    return runs
-                merged = [runs[0]]
-                for i in range(1, len(runs)):
-                    prev_text, prev_diff, prev_placeholder = merged[-1]
-                    curr_text, curr_diff, curr_placeholder = runs[i]
-                    # If previous is placeholder and current is also placeholder, skip current
-                    if prev_placeholder and curr_placeholder:
-                        continue
-                    merged.append((curr_text, curr_diff, curr_placeholder))
-                return merged
-
-            left_runs = merge_consecutive_placeholders(left_runs)
-            right_runs = merge_consecutive_placeholders(right_runs)
             
             return left_runs, right_runs
     
@@ -905,11 +885,8 @@ def generate_docx(rows, name1, name2, output_path):
         p1.clear()
         if tag == 'replace':
             runs1, _ = word_diff_runs(ltext, rtext)
-            for text_seg, is_diff, is_placeholder in runs1:
-                if is_placeholder:
-                    # Missing placeholder: green bold
-                    add_colored_run(p1, text_seg, color_placeholder, bold=True)
-                elif is_diff:
+            for text_seg, is_diff, _ in runs1:
+                if is_diff:
                     add_colored_run(p1, text_seg, color_left, bold=True)
                 else:
                     run = p1.add_run(text_seg)
@@ -944,11 +921,8 @@ def generate_docx(rows, name1, name2, output_path):
         p2.clear()
         if tag == 'replace':
             _, runs2 = word_diff_runs(ltext, rtext)
-            for text_seg, is_diff, is_placeholder in runs2:
-                if is_placeholder:
-                    # Missing placeholder: green bold
-                    add_colored_run(p2, text_seg, color_placeholder, bold=True)
-                elif is_diff:
+            for text_seg, is_diff, _ in runs2:
+                if is_diff:
                     add_colored_run(p2, text_seg, color_right, bold=True)
                 else:
                     run = p2.add_run(text_seg)
