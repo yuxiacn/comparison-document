@@ -189,124 +189,185 @@ def read_docx(path, use_precise=True):
 
 
 @register_reader('.pdf')
-def read_pdf(path, merge_lines=True, merge_across_pages=True, debug=False):
+def read_pdf(path, merge_lines=True, merge_across_pages=True):
     """
     Read PDF file, return content list and location info (paragraph number, page number, line number)
     
-    New approach:
-    1. Extract lines with line numbers (filter out page numbers)
-    2. Remove line numbers, keep indentation, record which lines have indentation
-    3. Join all lines into one big string (remove hard returns)
-    4. Insert newlines before indented lines to create paragraphs
-    5. Split into paragraphs
+    Args:
+        merge_lines: whether to merge consecutive non-empty lines into a paragraph
+        merge_across_pages: whether to merge paragraphs across pages
+    
+    Returns:
+        paragraphs: list of text content
+        location_info: [(paragraph_num, page_num, line_num), ...]
     """
     try:
         import pdfplumber
     except ImportError:
         raise ImportError("Please install pdfplumber for PDF support: pip install pdfplumber")
     
-    import re
+    paragraphs = []
+    location_info = []
+    paragraph_counter = 0
     
     # Pattern to identify page numbers: standalone numeric lines (1-4 digits)
+    import re
     page_number_pattern = re.compile(r'^\s*\d{1,4}\s*$')
-    # Pattern to identify visual line numbers: "114 text" or "115     text" etc.
-    # Captures: group 1 = line number with leading spaces, group 2 = separator (space/tab), group 3 = remaining spaces, group 4 = content
-    line_number_pattern = re.compile(r'^([ ]*\d+)([ \t])([ ]*)(.*)$')
+    # Pattern to identify visual line numbers at line start: (spaces+digits+space or dot)
+    line_number_pattern = re.compile(r'^(\s*\d+)[\.\s]\s*')
     
-    # Step 1 & 2: Extract lines, remove line numbers, keep indent info
-    all_lines_info = []  # [(content_with_indent, line_num, has_indent), ...]
+    # Collect raw line info from all pages first
+    all_pages_lines = []  # [(page_num, lines), ...]
     
     with pdfplumber.open(path) as pdf:
         for page_num, page in enumerate(pdf.pages, 1):
             text = page.extract_text()
             if not text:
+                all_pages_lines.append((page_num, []))
                 continue
             
             page_lines = text.splitlines()
+            processed_lines = []
             
             for line in page_lines:
                 line = line.rstrip()
                 if not line:
                     continue
-                
                 # Filter page number lines
                 if page_number_pattern.match(line):
                     continue
                 
-                # Extract line number
+                # Extract visual line number at line start
+                visual_line_num = None
                 match = line_number_pattern.match(line)
                 if match:
                     try:
-                        line_num = int(match.group(1).strip())
-                        # group(2) = separator (space/tab)
-                        # group(3) = spaces after separator (indent)
-                        # group(4) = actual content
-                        spaces_after = match.group(3)
-                        content = match.group(4)
-                        # Total indent = spaces after line number separator
-                        indent_chars = len(spaces_after)
-                        has_indent = indent_chars >= 2  # At least 2 spaces for indent
-                        # Reconstruct content with proper spacing for detection
-                        full_content = spaces_after + content
-                        if debug:
-                            print(f"DEBUG: Line {line_num}, spaces_after='{spaces_after}' ({indent_chars} chars), has_indent={has_indent}")
-                        all_lines_info.append((full_content, line_num, has_indent, page_num))
+                        visual_line_num = int(match.group(1).strip())
+                        line = line[match.end():].lstrip()
                     except ValueError:
-                        # No line number, treat as regular line
-                        if debug:
-                            print(f"DEBUG: No line number in: {repr(line[:50])}")
-                        all_lines_info.append((line, None, False, page_num))
-                else:
-                    # No line number, treat as regular line
-                    if debug:
-                        print(f"DEBUG: No line number match: {repr(line[:50])}")
-                    all_lines_info.append((line, None, False, page_num))
-    
-    # Step 3 & 4: Join lines and insert newlines before indented lines
-    # Build text with newlines at paragraph boundaries
-    paragraph_texts = []
-    current_para_parts = []
-    current_para_start_line = None
-    current_para_page = None
-    location_info = []
-    paragraph_counter = 0
-    
-    if debug:
-        print(f"DEBUG: Total lines to process: {len(all_lines_info)}")
-    
-    for i, (content, line_num, has_indent, page_num) in enumerate(all_lines_info):
-        # If this line has indent and we already have content, start new paragraph
-        if has_indent and current_para_parts:
-            # Save current paragraph
-            paragraph_counter += 1
-            para_text = ' '.join(current_para_parts)
-            paragraph_texts.append(para_text)
-            location_info.append((paragraph_counter, current_para_page, current_para_start_line))
-            if debug:
-                print(f"DEBUG: Saved paragraph {paragraph_counter} (lines {current_para_start_line}-{line_num-1})")
+                        pass
+                
+                if line:
+                    processed_lines.append((line, visual_line_num))
             
-            # Start new paragraph
-            current_para_parts = [content.lstrip(' \t')]  # Remove leading spaces/tabs for content
-            current_para_start_line = line_num
-            current_para_page = page_num
-        else:
-            # Continue current paragraph
-            if not current_para_parts:
-                current_para_start_line = line_num
-                current_para_page = page_num
-            current_para_parts.append(content.lstrip(' \t'))  # Remove leading spaces/tabs for content
+            all_pages_lines.append((page_num, processed_lines))
     
-    # Save last paragraph
-    if current_para_parts:
-        paragraph_counter += 1
-        para_text = ' '.join(current_para_parts)
-        paragraph_texts.append(para_text)
-        location_info.append((paragraph_counter, current_para_page, current_para_start_line))
-        if debug:
-            print(f"DEBUG: Saved paragraph {paragraph_counter} (started at line {current_para_start_line})")
-            print(f"DEBUG: Total paragraphs: {len(paragraph_texts)}")
+    # Cross-page paragraph merging
+    if merge_across_pages and merge_lines:
+        # Merge all page lines, then process paragraphs uniformly
+        all_lines = []
+        for page_num, lines in all_pages_lines:
+            for line, line_num in lines:
+                all_lines.append((line, line_num, page_num))
+        
+        # Uniform paragraph merging
+        current_paragraph = []
+        current_line_num = None
+        current_page = None
+        
+        i = 0
+        while i < len(all_lines):
+            line, visual_line_num, page_num = all_lines[i]
+            
+            # Check if new paragraph starts
+            is_new_para = False
+            
+            if not current_paragraph:
+                # First paragraph starts
+                is_new_para = True
+            else:
+                # Check if current line belongs to new paragraph
+                # ONLY check indent - ignore line number jumps and punctuation
+                stripped = line.lstrip()
+                indent = len(line) - len(stripped)
+                
+                # New paragraph ONLY if has obvious indent (4+ spaces)
+                # This prevents splitting when lines are missing (e.g., 113 -> 119)
+                if indent >= 4:
+                    is_new_para = True
+            
+            if is_new_para and current_paragraph:
+                # Save current paragraph
+                paragraph_counter += 1
+                para_text = ' '.join(current_paragraph)
+                paragraphs.append(para_text)
+                location_info.append((paragraph_counter, current_page or page_num, current_line_num))
+                
+                # Start new paragraph
+                current_paragraph = [line]
+                current_line_num = visual_line_num
+                current_page = page_num
+            else:
+                # Continue current paragraph
+                if not current_paragraph:
+                    current_line_num = visual_line_num
+                    current_page = page_num
+                current_paragraph.append(line)
+            
+            i += 1
+        
+        # Save last paragraph
+        if current_paragraph:
+            paragraph_counter += 1
+            para_text = ' '.join(current_paragraph)
+            paragraphs.append(para_text)
+            location_info.append((paragraph_counter, current_page, current_line_num))
     
-    return paragraph_texts, location_info
+    else:
+        # Process page by page, no cross-page merging
+        for page_num, lines in all_pages_lines:
+            if merge_lines:
+                current_paragraph = []
+                current_line_num = None
+                
+                for line, visual_line_num in lines:
+                    if not line:
+                        if current_paragraph:
+                            paragraph_counter += 1
+                            para_text = ' '.join(current_paragraph)
+                            paragraphs.append(para_text)
+                            location_info.append((paragraph_counter, page_num, current_line_num))
+                            current_paragraph = []
+                            current_line_num = None
+                        continue
+                    
+                    # Check new paragraph - ONLY by indent
+                    is_new_para = False
+                    if current_paragraph:
+                        stripped = line.lstrip()
+                        indent = len(line) - len(stripped)
+                        
+                        # New paragraph ONLY if has obvious indent (4+ spaces)
+                        if indent >= 4:
+                            is_new_para = True
+                    
+                    if is_new_para and current_paragraph:
+                        paragraph_counter += 1
+                        para_text = ' '.join(current_paragraph)
+                        paragraphs.append(para_text)
+                        location_info.append((paragraph_counter, page_num, current_line_num))
+                        current_paragraph = [line.lstrip()]  # Store without leading spaces
+                        current_line_num = visual_line_num
+                    else:
+                        if not current_paragraph:
+                            current_line_num = visual_line_num
+                        current_paragraph.append(line.lstrip())  # Store without leading spaces
+                
+                # Save last paragraph
+                if current_paragraph:
+                    paragraph_counter += 1
+                    para_text = ' '.join(current_paragraph)
+                    paragraphs.append(para_text)
+                    location_info.append((paragraph_counter, page_num, current_line_num))
+            else:
+                # No merging, each line independent
+                for line, visual_line_num in lines:
+                    if line.strip():
+                        paragraph_counter += 1
+                        paragraphs.append(line.lstrip())
+                        location_info.append((paragraph_counter, page_num, visual_line_num))
+    
+    return paragraphs, location_info
 
 
 @register_reader('.pptx')
@@ -331,13 +392,12 @@ def read_pptx(path):
     return lines, location_info
 
 
-def read_document(path, use_precise=True, merge_lines=True, merge_across_pages=True, debug=False):
+def read_document(path, use_precise=True, merge_lines=True, merge_across_pages=True):
     """
     Read document content
     use_precise: for DOCX, whether to use precise visual line number calculation
     merge_lines: for PDF/TXT, whether to merge consecutive lines
     merge_across_pages: for PDF, whether to merge paragraphs across pages
-    debug: for PDF, enable debug output
     """
     ext = Path(path).suffix.lower()
     if ext not in READERS:
@@ -348,7 +408,7 @@ def read_document(path, use_precise=True, merge_lines=True, merge_across_pages=T
     if ext == '.docx':
         return reader(path, use_precise=use_precise)
     elif ext == '.pdf':
-        return reader(path, merge_lines=merge_lines, merge_across_pages=merge_across_pages, debug=debug)
+        return reader(path, merge_lines=merge_lines, merge_across_pages=merge_across_pages)
     elif ext == '.txt':
         return reader(path, merge_lines=merge_lines)
     else:
@@ -895,7 +955,6 @@ Examples:
     parser.add_argument('--calibrate', action='store_true', help='Calibration mode: output paragraph location info for debugging')
     parser.add_argument('--no-merge', action='store_true', help='PDF/TXT files: do not merge consecutive lines (compare by original lines)')
     parser.add_argument('--no-page-merge', action='store_true', help='PDF: do not merge paragraphs across pages (process each page independently)')
-    parser.add_argument('--debug', action='store_true', help='Debug mode: show detailed processing info for PDF parsing')
     
     args = parser.parse_args()
     
@@ -904,7 +963,6 @@ Examples:
     use_precise = True
     merge_lines = not args.no_merge  # Default merge, disable with --no-merge
     merge_across_pages = not args.no_page_merge  # Default cross-page merge, disable with --no-page-merge
-    debug = args.debug
     
     if not os.path.exists(file1):
         print(f"Error: File does not exist: {file1}")
@@ -919,7 +977,7 @@ Examples:
     output_path = os.path.join(os.getcwd(), output_name)
 
     print(f"Reading {file1} ...")
-    result1 = read_document(file1, use_precise=use_precise, merge_lines=merge_lines, merge_across_pages=merge_across_pages, debug=debug)
+    result1 = read_document(file1, use_precise=use_precise, merge_lines=merge_lines, merge_across_pages=merge_across_pages)
     if isinstance(result1, tuple):
         lines1, location_info1 = result1
     else:
@@ -940,7 +998,7 @@ Examples:
         print()
 
     print(f"Reading {file2} ...")
-    result2 = read_document(file2, use_precise=use_precise, merge_lines=merge_lines, merge_across_pages=merge_across_pages, debug=debug)
+    result2 = read_document(file2, use_precise=use_precise, merge_lines=merge_lines, merge_across_pages=merge_across_pages)
     if isinstance(result2, tuple):
         lines2, location_info2 = result2
     else:
