@@ -213,8 +213,9 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
     # Pattern to identify page numbers: standalone numeric lines (1-4 digits)
     import re
     page_number_pattern = re.compile(r'^\s*\d{1,4}\s*$')
-    # Pattern to identify visual line numbers at line start: (spaces+digits+space or dot)
-    line_number_pattern = re.compile(r'^(\s*\d+)[\.\s]\s*')
+    # Pattern to identify visual line numbers: "114 content" or "115     content"
+    # Captures: line num, single separator, indent spaces, content
+    line_number_pattern = re.compile(r'^(\s*\d+)([\.\s])(\s*)(.*)$')
     
     # Collect raw line info from all pages first
     all_pages_lines = []  # [(page_num, lines), ...]
@@ -243,11 +244,16 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 if match:
                     try:
                         visual_line_num = int(match.group(1).strip())
-                        line = line[match.end():].lstrip()
+                        # group(3) = indent spaces after line number
+                        # group(4) = actual content
+                        indent_spaces = match.group(3)
+                        content = match.group(4)
+                        # Reconstruct: indent + content
+                        line = indent_spaces + content
                     except ValueError:
                         pass
                 
-                if line:
+                if line.strip():
                     processed_lines.append((line, visual_line_num))
             
             all_pages_lines.append((page_num, processed_lines))
@@ -293,16 +299,16 @@ def read_pdf(path, merge_lines=True, merge_across_pages=True):
                 paragraphs.append(para_text)
                 location_info.append((paragraph_counter, current_page or page_num, current_line_num))
                 
-                # Start new paragraph
-                current_paragraph = [line]
+                # Start new paragraph (store without leading spaces)
+                current_paragraph = [line.lstrip()]
                 current_line_num = visual_line_num
                 current_page = page_num
             else:
-                # Continue current paragraph
+                # Continue current paragraph (store without leading spaces)
                 if not current_paragraph:
                     current_line_num = visual_line_num
                     current_page = page_num
-                current_paragraph.append(line)
+                current_paragraph.append(line.lstrip())
             
             i += 1
         
